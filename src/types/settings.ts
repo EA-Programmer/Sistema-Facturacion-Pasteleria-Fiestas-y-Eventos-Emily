@@ -1,0 +1,22 @@
+export type BusinessSettingsForm = {
+  businessName: string;
+  tradeName: string;
+  ruc: string;
+  address: string;
+  city: string;
+  province: string;
+  phone: string;
+  email: string;
+  logoPath: string;
+  establishmentCode: string;
+  emissionPointCode: string;
+  invoiceSequence: number;
+  taxRate: number;
+  currency: string;
+  emailFromName: string;
+  emailFromAddress: string;
+  emailReplyTo: string;
+  sriEnvironment: "PRUEBAS" | "PRODUCCION";
+  sriEnabled: boolean;
+  signatureExpiresAt: string;
+};

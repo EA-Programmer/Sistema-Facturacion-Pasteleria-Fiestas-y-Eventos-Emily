@@ -1,0 +1,346 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  STAFF
+}
+
+enum DocumentType {
+  CEDULA
+  RUC
+  PASAPORTE
+  CONSUMIDOR_FINAL
+}
+
+enum ProductCategory {
+  TORTAS
+  BOCADITOS_SAL
+  BOCADITOS_DULCE
+  CUPCAKES
+  GALLETAS
+  POSTRES
+  VELAS
+  EXTRAS
+}
+
+enum PricingMode {
+  FIJO
+  POR_REGLAS
+}
+
+enum OrderStatus {
+  BORRADOR
+  CONFIRMADO
+  EN_PRODUCCION
+  LISTO
+  ENTREGADO
+  CANCELADO
+}
+
+enum InvoiceStatus {
+  BORRADOR
+  EMITIDA
+  ENVIADA
+  AUTORIZADA
+  ANULADA
+}
+
+enum PaymentStatus {
+  PENDIENTE
+  CONFIRMADO
+  ANULADO
+}
+
+enum PaymentMethod {
+  EFECTIVO
+  TRANSFERENCIA
+  DEPOSITO
+  TARJETA
+  OTRO
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  passwordHash  String?
+  emailVerified DateTime?
+  image         String?
+  role          Role      @default(ADMIN)
+  accounts      Account[]
+  sessions      Session[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Customer {
+  id           String       @id @default(cuid())
+  name         String
+  documentType DocumentType @default(CEDULA)
+  document     String
+  email        String?
+  phone        String?
+  address      String?
+  city         String?
+  province     String?
+  notes        String?
+  active       Boolean      @default(true)
+  orders       Order[]
+  invoices     Invoice[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([document])
+  @@index([name])
+}
+
+model Product {
+  id          String           @id @default(cuid())
+  name        String
+  description String?
+  category    ProductCategory
+  basePrice   Decimal          @db.Decimal(10, 2)
+  pricingMode PricingMode      @default(FIJO)
+  active      Boolean          @default(true)
+  variants    ProductVariant[]
+  options     ProductOption[]
+  orderItems  OrderItem[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+model ProductVariant {
+  id        String  @id @default(cuid())
+  productId String
+  name      String
+  price     Decimal @db.Decimal(10, 2)
+  metadata  Json?
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model ProductOption {
+  id        String  @id @default(cuid())
+  productId String
+  name      String
+  type      String
+  required  Boolean @default(false)
+  values    Json?
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model CakePortion {
+  id        String   @id @default(cuid())
+  portions  Int      @unique
+  price     Decimal  @db.Decimal(10, 2)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CakeFlavor {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  specialty Boolean  @default(false)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CakeFilling {
+  id         String   @id @default(cuid())
+  name       String   @unique
+  extraPrice Decimal  @default(0) @db.Decimal(10, 2)
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model CakeCover {
+  id         String   @id @default(cuid())
+  name       String   @unique
+  extraPrice Decimal  @default(0) @db.Decimal(10, 2)
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model CakeModel {
+  id           String   @id @default(cuid())
+  name         String   @unique
+  customizable Boolean  @default(true)
+  extraPrice   Decimal  @default(0) @db.Decimal(10, 2)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model PricingRule {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  active      Boolean  @default(true)
+  appliesTo   String
+  conditions  Json
+  calculation Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Order {
+  id                 String      @id @default(cuid())
+  code               String      @unique
+  customerId         String
+  status             OrderStatus @default(BORRADOR)
+  deliveryDate       DateTime?
+  deliveryTime       String?
+  deliveryAddress    String?
+  dedication         String?
+  referenceImageNote String?
+  notes              String?
+  subtotal           Decimal     @db.Decimal(10, 2)
+  tax                Decimal     @db.Decimal(10, 2)
+  discount           Decimal     @default(0) @db.Decimal(10, 2)
+  total              Decimal     @db.Decimal(10, 2)
+  customer           Customer    @relation(fields: [customerId], references: [id])
+  items              OrderItem[]
+  invoice            Invoice?
+  payments           Payment[]
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+}
+
+model OrderItem {
+  id             String   @id @default(cuid())
+  orderId        String
+  productId      String?
+  name           String
+  quantity       Int
+  unitPrice      Decimal  @db.Decimal(10, 2)
+  total          Decimal  @db.Decimal(10, 2)
+  customization  Json?
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product        Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+}
+
+model Invoice {
+  id              String        @id @default(cuid())
+  number          String        @unique
+  orderId         String        @unique
+  customerId      String
+  status          InvoiceStatus @default(BORRADOR)
+  subtotal        Decimal       @db.Decimal(10, 2)
+  tax             Decimal       @db.Decimal(10, 2)
+  total           Decimal       @db.Decimal(10, 2)
+  pdfUrl          String?
+  sriAccessKey    String?
+  sriXmlUrl       String?
+  sriRideUrl      String?
+  sriAuthorizedAt DateTime?
+  issuedAt        DateTime?
+  sentAt          DateTime?
+  order           Order         @relation(fields: [orderId], references: [id])
+  customer        Customer      @relation(fields: [customerId], references: [id])
+  payments        Payment[]
+  emailLogs       InvoiceEmailLog[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+model InvoiceEmailLog {
+  id            String   @id @default(cuid())
+  invoiceId     String
+  invoiceNumber String
+  to            String
+  from          String
+  subject       String
+  body          String
+  status        String   @default("SIMULADO")
+  sentAt        DateTime @default(now())
+  invoice       Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+
+  @@index([invoiceId])
+}
+
+model Payment {
+  id          String        @id @default(cuid())
+  orderId     String
+  invoiceId   String?
+  method      PaymentMethod
+  status      PaymentStatus @default(PENDIENTE)
+  amount      Decimal       @db.Decimal(10, 2)
+  reference   String?
+  notes       String?
+  paidAt      DateTime?
+  order       Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  invoice     Invoice?      @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model BusinessSettings {
+  id                 String   @id @default(cuid())
+  businessName       String
+  tradeName          String?
+  ruc                String
+  address            String
+  city               String?
+  province           String?
+  phone              String?
+  email              String?
+  logoPath           String?
+  establishmentCode  String   @default("001")
+  emissionPointCode  String   @default("001")
+  invoiceSequence    Int      @default(1)
+  taxRate            Decimal  @default(15) @db.Decimal(5, 2)
+  currency           String   @default("USD")
+  emailFromName      String?
+  emailFromAddress   String?
+  emailReplyTo       String?
+  sriEnvironment     String   @default("PRUEBAS")
+  sriEnabled         Boolean  @default(false)
+  signatureExpiresAt DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}

@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+:root {
+  --background: #faf7f8;
+  --foreground: #241b20;
+  --card: #ffffff;
+  --muted: #667085;
+  --line: #eadfe4;
+  --berry: #e6005c;
+  --berry-dark: #9b164a;
+  --chocolate: #4a210f;
+  --pistachio: #687a36;
+  --caramel: #b16b2c;
+  --icing: #fff4f7;
+  --cream: #fffaf2;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: var(--background);
+}
+
+body {
+  min-height: 100%;
+  margin: 0;
+  background:
+    linear-gradient(135deg, rgba(255, 244, 247, 0.95) 0%, rgba(255, 250, 242, 0.85) 42%, rgba(247, 248, 251, 1) 100%);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.focus-ring {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+.focus-ring:focus-visible {
+  outline-color: rgba(180, 35, 95, 0.45);
+  box-shadow: 0 0 0 4px rgba(180, 35, 95, 0.12);
+}
+
+@media print {
+  @page {
+    margin: 14mm;
+    size: A4;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .invoice-print-area,
+  .invoice-print-area * {
+    visibility: visible !important;
+  }
+
+  .invoice-print-area {
+    border: 0 !important;
+    box-shadow: none !important;
+    left: 0;
+    position: absolute;
+    top: 0;
+    width: 100%;
+  }
+
+  .no-print,
+  .no-print * {
+    display: none !important;
+  }
+}
