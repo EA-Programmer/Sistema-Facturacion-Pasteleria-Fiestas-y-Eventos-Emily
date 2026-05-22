@@ -20,6 +20,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
+ENV NODE_OPTIONS="--max-old-space-size=1024"
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates openssl \
@@ -35,4 +36,4 @@ COPY --from=builder /app/next.config.ts ./next.config.ts
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "pnpm prisma migrate deploy && node prisma/seed.js && pnpm start"]
+CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && node prisma/seed.js && ./node_modules/.bin/next start"]
