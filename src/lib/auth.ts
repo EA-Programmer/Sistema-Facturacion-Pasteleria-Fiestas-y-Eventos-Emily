@@ -48,7 +48,6 @@ export async function getAdminSession() {
     if (session) {
       await prisma.session.delete({ where: { sessionToken: token } }).catch(() => null);
     }
-    cookieStore.delete(adminSessionCookie);
     return null;
   }
 
