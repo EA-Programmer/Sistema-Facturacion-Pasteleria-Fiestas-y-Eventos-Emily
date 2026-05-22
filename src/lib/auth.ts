@@ -66,7 +66,6 @@ export async function requireAdminSession() {
   const session = await getAdminSession();
   if (!session) redirect("/login");
   if (session.user.role !== "ADMIN") {
-    await clearAdminSession();
     redirect("/login");
   }
   return session;
