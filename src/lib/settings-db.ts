@@ -24,7 +24,10 @@ export function normalizeBusinessSettings(settings: {
   emailReplyTo: string | null;
   sriEnvironment: string;
   sriEnabled: boolean;
+  signatureFileName: string | null;
+  signatureFilePath: string | null;
   signatureExpiresAt: Date | null;
+  signatureRegisteredAt: Date | null;
 }): BusinessSettingsForm {
   return {
     businessName: settings.businessName,
@@ -46,9 +49,12 @@ export function normalizeBusinessSettings(settings: {
     emailReplyTo: settings.emailReplyTo ?? "",
     sriEnvironment: settings.sriEnvironment === "PRODUCCION" ? "PRODUCCION" : "PRUEBAS",
     sriEnabled: settings.sriEnabled,
+    signatureFileName: settings.signatureFileName ?? "",
     signatureExpiresAt: settings.signatureExpiresAt
       ? settings.signatureExpiresAt.toISOString().slice(0, 10)
       : "",
+    signatureRegisteredAt: settings.signatureRegisteredAt?.toISOString() ?? "",
+    hasSignature: Boolean(settings.signatureFilePath),
   };
 }
 

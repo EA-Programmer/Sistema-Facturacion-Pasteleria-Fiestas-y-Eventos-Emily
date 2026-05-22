@@ -6,16 +6,31 @@ import type { InternalInvoice, InternalInvoiceStatus } from "@/types/invoice";
 
 const statusToInternal: Record<InvoiceStatus, InternalInvoiceStatus> = {
   BORRADOR: "PENDIENTE",
+  GENERADA_XML: "GENERADA_XML",
+  FIRMADA: "FIRMADA",
+  ENVIADA_SRI: "ENVIADA_SRI",
+  RECIBIDA: "RECIBIDA",
   EMITIDA: "EMITIDA",
   ENVIADA: "ENVIADA",
-  AUTORIZADA: "EMITIDA",
+  AUTORIZADA: "AUTORIZADA",
+  DEVUELTA: "DEVUELTA",
+  NO_AUTORIZADA: "NO_AUTORIZADA",
+  ERROR_CONEXION: "ERROR_CONEXION",
   ANULADA: "ANULADA",
 };
 
 export const statusToPrisma: Record<InternalInvoiceStatus, InvoiceStatus> = {
   PENDIENTE: "BORRADOR",
+  GENERADA_XML: "GENERADA_XML",
+  FIRMADA: "FIRMADA",
+  ENVIADA_SRI: "ENVIADA_SRI",
+  RECIBIDA: "RECIBIDA",
   EMITIDA: "EMITIDA",
   ENVIADA: "ENVIADA",
+  AUTORIZADA: "AUTORIZADA",
+  DEVUELTA: "DEVUELTA",
+  NO_AUTORIZADA: "NO_AUTORIZADA",
+  ERROR_CONEXION: "ERROR_CONEXION",
   ANULADA: "ANULADA",
 };
 
@@ -25,6 +40,10 @@ export async function getInternalInvoices(): Promise<InternalInvoice[]> {
       include: {
         customer: true,
         order: true,
+        sriJobs: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
       },
       orderBy: { createdAt: "desc" },
     }),
@@ -51,6 +70,18 @@ export async function getInternalInvoices(): Promise<InternalInvoice[]> {
       status: statusToInternal[invoice.status],
       issuedAt: (invoice.issuedAt ?? invoice.createdAt).toISOString(),
       sentAt: invoice.sentAt?.toISOString(),
+      sriAccessKey: invoice.sriAccessKey ?? "",
+      hasSriXml: Boolean(invoice.sriXmlUrl),
+      sriAuthorizedAt: invoice.sriAuthorizedAt?.toISOString(),
+      sriJob: invoice.sriJobs[0]
+        ? {
+            id: invoice.sriJobs[0].id,
+            status: invoice.sriJobs[0].status,
+            attempts: invoice.sriJobs[0].attempts,
+            lastError: invoice.sriJobs[0].lastError ?? "",
+            nextRunAt: invoice.sriJobs[0].nextRunAt.toISOString(),
+          }
+        : undefined,
       lines: order ? buildInvoiceLines(order) : [],
       extras: order?.extras ?? [],
       subtotal: Number(invoice.subtotal),

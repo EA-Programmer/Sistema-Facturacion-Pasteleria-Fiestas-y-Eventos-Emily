@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useDeferredValue, useMemo, useState, useTransition } from "react";
 import Image from "next/image";
 import {
   CheckCircle2,
@@ -8,8 +8,10 @@ import {
   FilePlus2,
   FileText,
   Mail,
+  RefreshCw,
   Send,
   Search,
+  ShieldCheck,
   Trash2,
   XCircle,
 } from "lucide-react";
@@ -17,8 +19,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   deleteInvoice,
+  emitInvoiceToSri,
   generateInvoice as generateInvoiceAction,
   recordInvoiceEmail,
+  retrySriQueue,
   updateInvoiceStatus as updateInvoiceStatusAction,
 } from "@/app/actions/invoices";
 import { invoiceStatusLabels } from "@/lib/invoices-catalog";
@@ -32,10 +36,6 @@ import type {
 import type { CakeOrder } from "@/types/order";
 import type { BusinessSettingsForm } from "@/types/settings";
 
-const ordersStorageKey = "emily-orders-v1";
-const customersStorageKey = "emily-billing-customers-v1";
-const invoicesStorageKey = "emily-invoices-v1";
-const settingsStorageKey = "emily-business-settings-v1";
 function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -45,9 +45,9 @@ function normalize(value: string) {
 }
 
 function statusVariant(status: InternalInvoiceStatus) {
-  if (status === "ENVIADA") return "green";
-  if (status === "EMITIDA") return "blue";
-  if (status === "ANULADA") return "default";
+  if (status === "AUTORIZADA" || status === "ENVIADA") return "green";
+  if (status === "EMITIDA" || status === "FIRMADA" || status === "ENVIADA_SRI" || status === "RECIBIDA") return "blue";
+  if (status === "ANULADA" || status === "DEVUELTA" || status === "NO_AUTORIZADA" || status === "ERROR_CONEXION") return "default";
   return "amber";
 }
 
@@ -78,13 +78,7 @@ export function InvoiceManager({
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "error" | "success"; text: string } | null>(null);
   const [isPending, startTransition] = useTransition();
-
-  useEffect(() => {
-    window.localStorage.setItem(ordersStorageKey, JSON.stringify(orders));
-    window.localStorage.setItem(customersStorageKey, JSON.stringify(customers));
-    window.localStorage.setItem(invoicesStorageKey, JSON.stringify(invoices));
-    window.localStorage.setItem(settingsStorageKey, JSON.stringify(settings));
-  }, [customers, invoices, orders, settings]);
+  const deferredQuery = useDeferredValue(query);
 
   const invoicedOrderIds = new Set(invoices.map((invoice) => invoice.orderId));
   const invoiceableOrders = orders.filter(
@@ -99,7 +93,7 @@ export function InvoiceManager({
     : undefined;
 
   const filteredInvoices = useMemo(() => {
-    const cleanQuery = normalize(query);
+    const cleanQuery = normalize(deferredQuery);
     if (!cleanQuery) return invoices;
 
     return invoices.filter((invoice) =>
@@ -113,7 +107,7 @@ export function InvoiceManager({
         .map(normalize)
         .some((value) => value.includes(cleanQuery)),
     );
-  }, [invoices, query]);
+  }, [invoices, deferredQuery]);
 
   const selectedInvoice = selectedInvoiceId
     ? invoices.find((invoice) => invoice.id === selectedInvoiceId)
@@ -168,6 +162,30 @@ export function InvoiceManager({
     });
   }
 
+  function emitSri(id: string) {
+    startTransition(async () => {
+      try {
+        const savedInvoices = await emitInvoiceToSri(id);
+        setInvoices(savedInvoices);
+        setMessage({ type: "success", text: "Factura enviada a la cola SRI. Revisa el estado electronico." });
+      } catch (error) {
+        setMessage({ type: "error", text: errorText(error) });
+      }
+    });
+  }
+
+  function retryQueue() {
+    startTransition(async () => {
+      try {
+        const savedInvoices = await retrySriQueue();
+        setInvoices(savedInvoices);
+        setMessage({ type: "success", text: "Cola SRI revisada. Los pendientes fueron reintentados." });
+      } catch (error) {
+        setMessage({ type: "error", text: errorText(error) });
+      }
+    });
+  }
+
   function sendInvoiceEmail(invoice: InternalInvoice) {
     const fromAddress = settings.emailFromAddress || settings.email || "pendiente@emily.local";
     const toAddress = invoice.customerEmail;
@@ -184,7 +202,7 @@ export function InvoiceManager({
       from: `${settings.emailFromName || settings.businessName} <${fromAddress}>`,
       subject,
       body,
-      status: "SIMULADO",
+      status: "ENVIADO",
       sentAt: new Date().toISOString(),
     };
 
@@ -193,7 +211,7 @@ export function InvoiceManager({
         const result = await recordInvoiceEmail(emailLog);
         setEmailLogs((current) => [result.log, ...current]);
         setInvoices(result.invoices);
-        setMessage({ type: "success", text: "Envio simulado guardado en historial." });
+        setMessage({ type: "success", text: "Comprobante electrónico (PDF y XML) enviado con éxito al correo del cliente." });
       } catch (error) {
         setMessage({ type: "error", text: errorText(error) });
       }
@@ -209,6 +227,21 @@ export function InvoiceManager({
         <SummaryCard label="Emitidas" value={emittedCount} />
         <SummaryCard label="Enviadas" value={sentCount} />
         <SummaryCard label="Pedidos por facturar" value={invoiceableOrders.length} />
+      </section>
+
+      <section className="rounded-lg border border-pink-100 bg-pink-50 p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="font-bold text-[var(--chocolate)]">Cola SRI inmediata</h2>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              Al emitir, la factura entra a la cola SRI y el sistema intenta generar XML. La firma y transmision real se activaran al configurar firma electronica y servicios SRI.
+            </p>
+          </div>
+          <Button disabled={isPending} onClick={retryQueue} variant="secondary">
+            <RefreshCw aria-hidden className="size-4" />
+            Reintentar cola
+          </Button>
+        </div>
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[420px_1fr]">
@@ -280,6 +313,7 @@ export function InvoiceManager({
             <label className="flex min-h-10 items-center gap-2 rounded-lg border border-[var(--line)] bg-white px-3 text-sm text-slate-500 shadow-sm lg:w-80">
               <Search aria-hidden className="size-4" />
               <input
+                aria-label="Buscar factura"
                 className="min-w-0 flex-1 outline-none"
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Buscar factura"
@@ -296,6 +330,7 @@ export function InvoiceManager({
                   key={invoice.id}
                   onRemove={() => removeInvoice(invoice.id)}
                   onSelect={() => setSelectedInvoiceId(invoice.id)}
+                  onSriEmit={() => emitSri(invoice.id)}
                   onStatusChange={(status) => updateInvoiceStatus(invoice.id, status)}
                   pending={isPending}
                   selected={selectedInvoice?.id === invoice.id}
@@ -343,11 +378,13 @@ function FormMessage({
 }) {
   return (
     <div
+      aria-live={message.type === "error" ? "assertive" : "polite"}
       className={
         message.type === "error"
           ? "rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700"
           : "rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700"
       }
+      role={message.type === "error" ? "alert" : "status"}
     >
       {message.text}
     </div>
@@ -359,6 +396,7 @@ function InvoiceRow({
   selected,
   onSelect,
   onRemove,
+  onSriEmit,
   onStatusChange,
   pending,
 }: {
@@ -366,11 +404,12 @@ function InvoiceRow({
   selected: boolean;
   onSelect: () => void;
   onRemove: () => void;
+  onSriEmit: () => void;
   onStatusChange: (status: InternalInvoiceStatus) => void;
   pending: boolean;
 }) {
   return (
-    <div className={selected ? "bg-pink-50/50 p-5" : "p-5"}>
+    <div className={selected ? "perf-row bg-pink-50/50 p-5" : "perf-row p-5"}>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
@@ -382,7 +421,16 @@ function InvoiceRow({
             <p><strong>Fecha:</strong> {shortDate(invoice.issuedAt)}</p>
             <p><strong>Cliente:</strong> {invoice.customerName}</p>
             <p><strong>Total:</strong> {currency(invoice.total)}</p>
+            <p><strong>SRI:</strong> {invoiceStatusLabels[invoice.status]}</p>
+            <p><strong>Intentos:</strong> {invoice.sriJob?.attempts ?? 0}</p>
+            <p><strong>XML:</strong> {invoice.hasSriXml ? "Generado" : "Pendiente"}</p>
+            <p><strong>Clave acceso:</strong> {invoice.sriAccessKey ? `${invoice.sriAccessKey.slice(0, 12)}...` : "Pendiente"}</p>
           </div>
+          {invoice.sriJob?.lastError ? (
+            <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              {invoice.sriJob.lastError}
+            </p>
+          ) : null}
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-2">
@@ -400,6 +448,9 @@ function InvoiceRow({
           </select>
           <IconButton disabled={pending} label="Ver factura" onClick={onSelect}>
             <Eye aria-hidden className="size-4" />
+          </IconButton>
+          <IconButton disabled={pending || invoice.status === "AUTORIZADA" || invoice.status === "ANULADA"} label="Emitir al SRI" onClick={onSriEmit}>
+            <ShieldCheck aria-hidden className="size-4" />
           </IconButton>
           <IconButton disabled={pending} label="Eliminar factura" onClick={onRemove}>
             <Trash2 aria-hidden className="size-4" />
@@ -446,10 +497,10 @@ function InvoicePreview({
           <Button
             disabled={!canSendEmail || isPending}
             onClick={onSendEmail}
-            title={canSendEmail ? "Simular envio por correo" : "El cliente no tiene correo"}
+            title={canSendEmail ? "Enviar correo real al cliente con PDF y XML" : "El cliente no tiene correo registrado"}
           >
             <Send aria-hidden className="size-4" />
-            Enviar correo
+            {isPending ? "Enviando..." : "Enviar correo"}
           </Button>
         </div>
       </div>
@@ -487,8 +538,14 @@ function InvoicePreview({
               <p className="text-xs font-bold uppercase text-slate-500">Factura interna</p>
               <p className="mt-1 text-lg font-bold text-slate-950">{invoice.number}</p>
               <p className="mt-1 text-sm text-slate-600">{shortDate(invoice.issuedAt)}</p>
-              <p className="mt-2 text-xs font-semibold text-amber-700">
-                No autorizada SRI
+              <p className={`mt-2 text-xs font-semibold ${
+                ["FIRMADA", "ENVIADA", "AUTORIZADA"].includes(invoice.status)
+                  ? "text-emerald-700"
+                  : "text-amber-700"
+              }`}>
+                {["FIRMADA", "ENVIADA", "AUTORIZADA"].includes(invoice.status)
+                  ? "Emitida y Firmada SRI"
+                  : "Borrador - No autorizada SRI"}
               </p>
             </div>
           </div>
@@ -579,7 +636,7 @@ function InvoicePreview({
               <div>
                 <h3 className="font-bold text-[var(--chocolate)]">Vista previa del correo</h3>
                 <p className="mt-1 text-sm text-slate-500">
-                  Simulacion local. Luego se conectara con Resend.
+                  Se enviará una plantilla HTML premium con los documentos adjuntos (PDF y XML).
                 </p>
               </div>
             </div>
@@ -597,13 +654,21 @@ function InvoicePreview({
             <h3 className="font-bold text-[var(--chocolate)]">Historial de envios</h3>
             {emailLogs.length ? (
               <div className="mt-4 space-y-3">
-                {emailLogs.map((log) => (
+                 {emailLogs.map((log) => (
                   <div className="rounded-lg bg-slate-50 p-3 text-sm" key={log.id}>
                     <div className="flex items-center justify-between gap-2">
-                      <strong>{log.status}</strong>
+                      <span className={
+                        log.status === "ENVIADO"
+                          ? "inline-flex items-center rounded bg-emerald-50 px-1.5 py-0.5 text-xs font-semibold text-emerald-700"
+                          : log.status === "ERROR"
+                          ? "inline-flex items-center rounded bg-rose-50 px-1.5 py-0.5 text-xs font-semibold text-rose-700"
+                          : "inline-flex items-center rounded bg-amber-50 px-1.5 py-0.5 text-xs font-semibold text-amber-700"
+                      }>
+                        {log.status === "ENVIADO" ? "ENVIADO" : log.status === "ERROR" ? "FALLIDO" : "SIMULADO"}
+                      </span>
                       <span className="text-xs text-slate-500">{shortDate(log.sentAt)}</span>
                     </div>
-                    <p className="mt-1 text-slate-600">{log.to}</p>
+                    <p className="mt-2 text-slate-700"><strong>Para:</strong> {log.to}</p>
                   </div>
                 ))}
               </div>

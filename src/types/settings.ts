@@ -18,5 +18,8 @@ export type BusinessSettingsForm = {
   emailReplyTo: string;
   sriEnvironment: "PRUEBAS" | "PRODUCCION";
   sriEnabled: boolean;
+  signatureFileName: string;
   signatureExpiresAt: string;
+  signatureRegisteredAt: string;
+  hasSignature: boolean;
 };

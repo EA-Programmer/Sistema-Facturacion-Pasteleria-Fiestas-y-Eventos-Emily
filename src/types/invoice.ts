@@ -1,7 +1,19 @@
 import type { CustomerDocumentType } from "@/types/customer";
 import type { OrderExtra } from "@/types/order";
 
-export type InternalInvoiceStatus = "PENDIENTE" | "EMITIDA" | "ENVIADA" | "ANULADA";
+export type InternalInvoiceStatus =
+  | "PENDIENTE"
+  | "GENERADA_XML"
+  | "FIRMADA"
+  | "ENVIADA_SRI"
+  | "RECIBIDA"
+  | "EMITIDA"
+  | "ENVIADA"
+  | "AUTORIZADA"
+  | "DEVUELTA"
+  | "NO_AUTORIZADA"
+  | "ERROR_CONEXION"
+  | "ANULADA";
 
 export type InternalInvoiceLine = {
   id: string;
@@ -26,6 +38,16 @@ export type InternalInvoice = {
   status: InternalInvoiceStatus;
   issuedAt: string;
   sentAt?: string;
+  sriAccessKey: string;
+  hasSriXml: boolean;
+  sriAuthorizedAt?: string;
+  sriJob?: {
+    id: string;
+    status: string;
+    attempts: number;
+    lastError: string;
+    nextRunAt: string;
+  };
   lines: InternalInvoiceLine[];
   extras: OrderExtra[];
   subtotal: number;

@@ -131,6 +131,16 @@ export async function saveOrder(order: CakeOrder) {
     };
   });
 
+  const totalBocaditos = productItems
+    .filter((item) => item.category === "BOCADITOS_SAL" || item.category === "BOCADITOS_DULCE")
+    .reduce((sum, item) => sum + item.quantity, 0);
+
+  if (totalBocaditos > 0 && totalBocaditos < 50) {
+    failValidation(
+      `El pedido mínimo de bocaditos es de 50 unidades en total. Actualmente has seleccionado ${totalBocaditos}.`
+    );
+  }
+
   const extrasTotal = extras.reduce((total, extra) => total + extra.price * extra.quantity, 0);
   const productsTotal = productItems.reduce((total, item) => total + item.total, 0);
   const subtotal = roundMoney(

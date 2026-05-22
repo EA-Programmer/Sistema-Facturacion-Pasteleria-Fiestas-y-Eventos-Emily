@@ -12,14 +12,20 @@ function hashPassword(password) {
 async function main() {
   const adminEmail = process.env.ADMIN_EMAIL || "admin@emily.local";
   const adminPassword = process.env.ADMIN_PASSWORD || "admin";
+  const resetAdminPassword = process.env.RESET_ADMIN_PASSWORD === "true";
 
   await prisma.user.upsert({
     where: { email: adminEmail },
-    update: {
-      name: "Admin",
-      passwordHash: hashPassword(adminPassword),
-      role: "ADMIN",
-    },
+    update: resetAdminPassword
+      ? {
+          name: "Admin",
+          passwordHash: hashPassword(adminPassword),
+          role: "ADMIN",
+        }
+      : {
+          name: "Admin",
+          role: "ADMIN",
+        },
     create: {
       name: "Admin",
       email: adminEmail,

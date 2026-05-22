@@ -10,7 +10,7 @@ export default async function LoginPage() {
 
   return (
     <main className="grid min-h-screen place-items-center px-4 py-10">
-      <section className="grid w-full max-w-5xl overflow-hidden rounded-lg border border-[var(--line)] bg-white shadow-xl shadow-pink-950/5 lg:grid-cols-[1fr_430px]">
+      <section className="animate-page-enter grid w-full max-w-5xl overflow-hidden rounded-lg border border-[var(--line)] bg-white shadow-xl shadow-pink-950/5 lg:grid-cols-[1fr_430px]">
         <div className="hidden bg-[var(--icing)] p-10 lg:block">
           <BrandMark />
           <div className="mt-16 max-w-lg">

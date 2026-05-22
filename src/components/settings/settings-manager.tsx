@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import {
   Building2,
   FileText,
@@ -8,8 +8,12 @@ import {
   RotateCcw,
   Save,
   ShieldCheck,
+  Trash2,
+  Upload,
 } from "lucide-react";
 import {
+  registerElectronicSignature,
+  removeElectronicSignature,
   resetBusinessSettings,
   saveBusinessSettings,
 } from "@/app/actions/settings";
@@ -22,8 +26,6 @@ function formatSequence(value: number) {
   return String(value || 1).padStart(9, "0");
 }
 
-const storageKey = "emily-business-settings-v1";
-
 export function SettingsManager({
   initialSettings,
 }: {
@@ -32,10 +34,7 @@ export function SettingsManager({
   const [settings, setSettings] = useState<BusinessSettingsForm>(initialSettings);
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState<{ type: "error" | "success"; text: string } | null>(null);
-
-  useEffect(() => {
-    window.localStorage.setItem(storageKey, JSON.stringify(settings));
-  }, [settings]);
+  const signatureFormRef = useRef<HTMLFormElement>(null);
 
   const nextInvoiceNumber = useMemo(
     () =>
@@ -80,9 +79,88 @@ export function SettingsManager({
     });
   }
 
+  function uploadSignature(formData: FormData) {
+    startTransition(async () => {
+      try {
+        const nextSettings = await registerElectronicSignature(formData);
+        setSettings(nextSettings);
+        signatureFormRef.current?.reset();
+        setMessage({ type: "success", text: "Firma electronica registrada de forma segura." });
+      } catch (error) {
+        setMessage({
+          type: "error",
+          text: error instanceof Error ? error.message : "No se pudo registrar la firma electronica.",
+        });
+      }
+    });
+  }
+
+  function deleteSignature() {
+    startTransition(async () => {
+      try {
+        const nextSettings = await removeElectronicSignature();
+        setSettings(nextSettings);
+        signatureFormRef.current?.reset();
+        setMessage({ type: "success", text: "Firma electronica retirada de la configuracion." });
+      } catch (error) {
+        setMessage({
+          type: "error",
+          text: error instanceof Error ? error.message : "No se pudo retirar la firma electronica.",
+        });
+      }
+    });
+  }
+
   return (
     <div className="space-y-6">
       {message ? <FormMessage message={message} /> : null}
+
+      {settings.sriEnabled ? (
+        settings.sriEnvironment === "PRODUCCION" ? (
+          <div className="rounded-xl border-2 border-red-200 bg-red-50 p-5 shadow-sm">
+            <div className="flex items-start gap-4">
+              <span className="rounded-lg bg-red-100 p-2.5 text-red-700">
+                <ShieldCheck className="size-6 animate-pulse" />
+              </span>
+              <div>
+                <h3 className="text-base font-bold text-red-950">MODO DE PRODUCCIÓN SRI ACTIVO</h3>
+                <p className="mt-1 text-sm leading-relaxed text-red-800">
+                  El sistema está conectado directamente con los servidores reales del <strong>SRI (Servicio de Rentas Internas)</strong>. 
+                  Cualquier factura que emitas se firmará con tu firma digital <strong>{settings.signatureFileName}</strong> y tendrá <strong>validez legal y tributaria real</strong>. Asegúrate de ingresar datos verdaderos de los clientes.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-xl border-2 border-cyan-200 bg-cyan-50/70 p-5 shadow-sm">
+            <div className="flex items-start gap-4">
+              <span className="rounded-lg bg-cyan-100 p-2.5 text-cyan-800">
+                <ShieldCheck className="size-6" />
+              </span>
+              <div>
+                <h3 className="text-base font-bold text-cyan-950">MODO DE PRUEBAS SRI ACTIVO</h3>
+                <p className="mt-1 text-sm leading-relaxed text-cyan-800">
+                  El sistema está en <strong>ambiente de pruebas/simulación</strong>. Las facturas emitidas se firmarán y enviarán al SRI de pruebas, lo que te permite validar el flujo sin generar obligaciones tributarias o de pago de impuestos. Es ideal para capacitación y pruebas de facturación.
+                </p>
+              </div>
+            </div>
+          </div>
+        )
+      ) : (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-5 shadow-sm">
+          <div className="flex items-start gap-4">
+            <span className="rounded-lg bg-amber-100 p-2.5 text-amber-700">
+              <Building2 className="size-6" />
+            </span>
+            <div>
+              <h3 className="text-base font-bold text-amber-950">MODO LOCAL — FACTURACIÓN INTERNA</h3>
+              <p className="mt-1 text-sm leading-relaxed text-amber-850">
+                La integración con el SRI está <strong>desactivada</strong>. El sistema funciona únicamente para el control interno de Fiestas & Eventos Emily, registrando pedidos y cobros localmente. Activa la integración SRI abajo después de registrar tu RUC y subir tu firma electrónica.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <section className="grid gap-4 md:grid-cols-4">
         <SummaryCard label="Empresa" value={settings.businessName || "Sin nombre"} />
@@ -229,7 +307,7 @@ export function SettingsManager({
           </SettingsCard>
 
           <SettingsCard
-            description="Solo queda preparado. No conectaremos SRI hasta terminar MVP interno."
+            description="Ambiente, firma electronica y activacion del flujo de comprobantes electronicos."
             icon={ShieldCheck}
             title="SRI"
           >
@@ -265,6 +343,82 @@ export function SettingsManager({
               />
               Activar integracion SRI cuando estemos listos
             </label>
+
+            <div className="mt-5 rounded-lg border border-[var(--line)] bg-[var(--cream)] p-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <h3 className="font-bold text-[var(--chocolate)]">Firma electronica</h3>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">
+                    Sube el archivo .p12 o .pfx. Se guarda fuera de la carpeta publica y la clave queda cifrada.
+                  </p>
+                </div>
+                <Badge variant={settings.hasSignature ? "green" : "amber"}>
+                  {settings.hasSignature ? "Registrada" : "Pendiente"}
+                </Badge>
+              </div>
+
+              {settings.hasSignature ? (
+                <div className="mt-4 rounded-lg bg-white p-3 text-sm text-slate-700">
+                  <p><strong>Archivo:</strong> {settings.signatureFileName || "Firma registrada"}</p>
+                  <p><strong>Vence:</strong> {settings.signatureExpiresAt || "Sin fecha"}</p>
+                  <p>
+                    <strong>Registrada:</strong>{" "}
+                    {settings.signatureRegisteredAt
+                      ? new Date(settings.signatureRegisteredAt).toLocaleString("es-EC")
+                      : "Sin fecha"}
+                  </p>
+                </div>
+              ) : null}
+
+              <form
+                action={uploadSignature}
+                className="mt-4 grid gap-3 md:grid-cols-[1fr_180px] lg:grid-cols-[1fr_180px_180px_auto]"
+                ref={signatureFormRef}
+              >
+                <label className="block">
+                  <span className="text-sm font-semibold text-slate-700">Archivo de firma</span>
+                  <input
+                    accept=".p12,.pfx"
+                    className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-pink-50 file:px-3 file:py-1.5 file:font-semibold file:text-[var(--berry)]"
+                    name="signatureFile"
+                    type="file"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="text-sm font-semibold text-slate-700">Clave</span>
+                  <input
+                    autoComplete="new-password"
+                    className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)]"
+                    name="signaturePassword"
+                    placeholder="Clave de firma"
+                    type="password"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="text-sm font-semibold text-slate-700">Vencimiento</span>
+                  <input
+                    className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)]"
+                    defaultValue={settings.signatureExpiresAt}
+                    name="signatureExpiresAt"
+                    type="date"
+                  />
+                </label>
+
+                <div className="flex items-end gap-2">
+                  <Button disabled={isPending} type="submit">
+                    <Upload aria-hidden className="size-4" />
+                    Registrar
+                  </Button>
+                  {settings.hasSignature ? (
+                    <Button disabled={isPending} onClick={deleteSignature} type="button" variant="secondary">
+                      <Trash2 aria-hidden className="size-4" />
+                    </Button>
+                  ) : null}
+                </div>
+              </form>
+            </div>
           </SettingsCard>
 
           <div className="flex flex-col gap-3 sm:flex-row">
@@ -302,7 +456,8 @@ export function SettingsManager({
               <StatusLine label="Datos de empresa" ready={Boolean(settings.businessName && settings.ruc)} />
               <StatusLine label="Secuencial factura" ready={Boolean(settings.establishmentCode && settings.emissionPointCode)} />
               <StatusLine label="Correo facturas" ready={Boolean(settings.emailFromAddress)} />
-              <StatusLine label="SRI preparado" ready={settings.sriEnabled} />
+              <StatusLine label="Firma electronica" ready={settings.hasSignature} />
+              <StatusLine label="SRI preparado" ready={settings.sriEnabled && settings.hasSignature} />
             </div>
           </section>
         </aside>
@@ -327,11 +482,13 @@ function FormMessage({
 }) {
   return (
     <div
+      aria-live={message.type === "error" ? "assertive" : "polite"}
       className={
         message.type === "error"
           ? "rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700"
           : "rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700"
       }
+      role={message.type === "error" ? "alert" : "status"}
     >
       {message.text}
     </div>

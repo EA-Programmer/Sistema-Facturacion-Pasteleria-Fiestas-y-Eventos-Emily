@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
@@ -46,9 +47,16 @@ enum OrderStatus {
 
 enum InvoiceStatus {
   BORRADOR
+  GENERADA_XML
+  FIRMADA
+  ENVIADA_SRI
+  RECIBIDA
   EMITIDA
   ENVIADA
   AUTORIZADA
+  DEVUELTA
+  NO_AUTORIZADA
+  ERROR_CONEXION
   ANULADA
 }
 
@@ -283,8 +291,26 @@ model Invoice {
   customer        Customer      @relation(fields: [customerId], references: [id])
   payments        Payment[]
   emailLogs       InvoiceEmailLog[]
+  sriJobs         SriJob[]
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
+}
+
+model SriJob {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  status      String   @default("PENDIENTE")
+  attempts    Int      @default(0)
+  lastError   String?
+  nextRunAt   DateTime @default(now())
+  lockedAt    DateTime?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextRunAt])
+  @@index([invoiceId])
 }
 
 model InvoiceEmailLog {
@@ -340,7 +366,11 @@ model BusinessSettings {
   emailReplyTo       String?
   sriEnvironment     String   @default("PRUEBAS")
   sriEnabled         Boolean  @default(false)
+  signatureFileName  String?
+  signatureFilePath  String?
+  signaturePassword  String?
   signatureExpiresAt DateTime?
+  signatureRegisteredAt DateTime?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 }

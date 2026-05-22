@@ -33,8 +33,6 @@ function cleanCustomer(customer: BillingCustomer) {
 
 async function refreshCustomers() {
   revalidatePath("/clientes");
-  revalidatePath("/pedidos");
-  revalidatePath("/facturas");
   return getBillingCustomers();
 }
 

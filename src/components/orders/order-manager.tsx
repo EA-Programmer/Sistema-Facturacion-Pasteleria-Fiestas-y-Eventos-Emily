@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useDeferredValue, useMemo, useState, useTransition } from "react";
 import {
   CalendarClock,
   FileText,
@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button, ButtonLink } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 import {
   deleteOrder,
   saveOrder as saveOrderAction,
@@ -42,10 +43,6 @@ const emptyForm: CakeOrderForm = {
   extras: [],
   productItems: [],
 };
-
-const ordersStorageKey = "emily-orders-v1";
-const customersStorageKey = "emily-billing-customers-v1";
-const cakeCatalogStorageKey = "emily-cake-catalog-v1";
 
 function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -86,17 +83,15 @@ export function OrderManager({
   const [products] = useState<GeneralProduct[]>(initialProducts);
   const [form, setForm] = useState<CakeOrderForm>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isFormOpen, setIsFormOpen] = useState(false);
   const [extraForm, setExtraForm] = useState({ name: "", price: "", quantity: "1" });
   const [productForm, setProductForm] = useState({ productId: "", quantity: "1" });
+  const [bocaditoSalForm, setBocaditoSalForm] = useState({ productId: "", quantity: "25" });
+  const [bocaditoDulceForm, setBocaditoDulceForm] = useState({ productId: "", quantity: "25" });
   const [query, setQuery] = useState("");
   const [message, setMessage] = useState<{ type: "error" | "success"; text: string } | null>(null);
   const [isPending, startTransition] = useTransition();
-
-  useEffect(() => {
-    window.localStorage.setItem(ordersStorageKey, JSON.stringify(orders));
-    window.localStorage.setItem(customersStorageKey, JSON.stringify(customers));
-    window.localStorage.setItem(cakeCatalogStorageKey, JSON.stringify(catalog));
-  }, [catalog, customers, orders]);
+  const deferredQuery = useDeferredValue(query);
 
   const activeCustomers = useMemo(
     () => customers.filter((customer) => customer.active),
@@ -107,7 +102,25 @@ export function OrderManager({
   const activeFillings = catalog.fillings.filter((item) => item.active);
   const activeCovers = catalog.covers.filter((item) => item.active);
   const activeModels = catalog.models.filter((item) => item.active);
-  const activeProducts = products.filter((item) => item.active);
+  
+  // Excluir bocaditos de la sección genérica
+  const activeProducts = products.filter(
+    (item) => item.active && item.category !== "BOCADITOS_SAL" && item.category !== "BOCADITOS_DULCE"
+  );
+
+  // Bocaditos de sal y dulce
+  const activeSaltyBocaditos = products.filter(
+    (item) => item.active && item.category === "BOCADITOS_SAL"
+  );
+  const activeSweetBocaditos = products.filter(
+    (item) => item.active && item.category === "BOCADITOS_DULCE"
+  );
+
+  const totalBocaditosCount = useMemo(() => {
+    return form.productItems
+      .filter((item) => item.category === "BOCADITOS_SAL" || item.category === "BOCADITOS_DULCE")
+      .reduce((sum, item) => sum + item.quantity, 0);
+  }, [form.productItems]);
 
   const selectedCustomer = activeCustomers.find((customer) => customer.id === form.customerId);
   const selectedPortion = activePortions.find((item) => item.id === form.portionsId);
@@ -141,7 +154,7 @@ export function OrderManager({
   }, [form.extras, form.productItems, selectedCover, selectedFilling, selectedModel, selectedPortion, taxRate]);
 
   const filteredOrders = useMemo(() => {
-    const cleanQuery = normalize(query);
+    const cleanQuery = normalize(deferredQuery);
     if (!cleanQuery) return orders;
 
     return orders.filter((order) =>
@@ -156,7 +169,7 @@ export function OrderManager({
         .map(normalize)
         .some((value) => value.includes(cleanQuery)),
     );
-  }, [orders, query]);
+  }, [orders, deferredQuery]);
 
   function setField<K extends keyof CakeOrderForm>(key: K, value: CakeOrderForm[K]) {
     setForm((current) => {
@@ -233,6 +246,56 @@ export function OrderManager({
     setProductForm({ productId: "", quantity: "1" });
   }
 
+  function addBocaditoItem(productId: string, quantityStr: string, isSalty: boolean) {
+    const product = products.find((item) => item.id === productId);
+    const quantity = Number(quantityStr || "1");
+
+    if (!product || !Number.isInteger(quantity) || quantity <= 0) {
+      setMessage({ type: "error", text: "Selecciona un bocadito y una cantidad entera mayor a cero." });
+      return;
+    }
+
+    setForm((current) => {
+      const existing = current.productItems.find((item) => item.productId === product.id);
+      if (existing) {
+        return {
+          ...current,
+          productItems: current.productItems.map((item) =>
+            item.productId === product.id
+              ? {
+                  ...item,
+                  quantity: item.quantity + quantity,
+                  total: roundMoney((item.quantity + quantity) * item.unitPrice),
+                }
+              : item,
+          ),
+        };
+      }
+
+      return {
+        ...current,
+        productItems: [
+          ...current.productItems,
+          {
+            id: createId("item"),
+            productId: product.id,
+            name: product.name,
+            category: product.category,
+            quantity,
+            unitPrice: product.basePrice,
+            total: roundMoney(product.basePrice * quantity),
+          },
+        ],
+      };
+    });
+
+    if (isSalty) {
+      setBocaditoSalForm({ productId: "", quantity: "25" });
+    } else {
+      setBocaditoDulceForm({ productId: "", quantity: "25" });
+    }
+  }
+
   function removeProductItem(id: string) {
     setForm((current) => ({
       ...current,
@@ -252,7 +315,21 @@ export function OrderManager({
     setForm(emptyForm);
     setExtraForm({ name: "", price: "", quantity: "1" });
     setProductForm({ productId: "", quantity: "1" });
+    setBocaditoSalForm({ productId: "", quantity: "25" });
+    setBocaditoDulceForm({ productId: "", quantity: "25" });
     setMessage(null);
+    setIsFormOpen(false);
+  }
+
+  function openNewOrder() {
+    setEditingId(null);
+    setForm(emptyForm);
+    setExtraForm({ name: "", price: "", quantity: "1" });
+    setProductForm({ productId: "", quantity: "1" });
+    setBocaditoSalForm({ productId: "", quantity: "25" });
+    setBocaditoDulceForm({ productId: "", quantity: "25" });
+    setMessage(null);
+    setIsFormOpen(true);
   }
 
   function errorText(error: unknown) {
@@ -268,6 +345,11 @@ export function OrderManager({
     if (!selectedModel) return "Selecciona el modelo.";
     if (!form.deliveryDate) return "Selecciona la fecha de entrega.";
     if (isPastDateInput(form.deliveryDate)) return "La fecha de entrega no puede ser anterior a hoy.";
+    
+    if (totalBocaditosCount > 0 && totalBocaditosCount < 50) {
+      return `El pedido mínimo para bocaditos es de 50 unidades en total. Actualmente has seleccionado ${totalBocaditosCount} unidades.`;
+    }
+
     if (totals.total <= 0) return "El total del pedido debe ser mayor a cero.";
     return "";
   }
@@ -356,6 +438,8 @@ export function OrderManager({
       extras: order.extras,
       productItems: order.productItems,
     });
+    setMessage(null);
+    setIsFormOpen(true);
   }
 
   function removeOrder(id: string) {
@@ -396,21 +480,19 @@ export function OrderManager({
         <SummaryCard label="Listos para factura" value={pendingInvoices} />
       </section>
 
-      <section className="grid gap-5 2xl:grid-cols-[460px_1fr]">
+      <section className="space-y-5">
+        <Modal
+          description="Configura la torta, calcula el total y deja el pedido listo para facturar."
+          onClose={clearForm}
+          open={isFormOpen}
+          title={editingId ? "Editar pedido" : "Nuevo pedido"}
+          width="xl"
+        >
         <article
-          className="rounded-lg border border-[var(--line)] bg-white shadow-sm shadow-pink-950/5"
+          className="bg-white"
           id="nuevo-pedido"
         >
-          <div className="border-b border-[var(--line)] p-5">
-            <h2 className="text-lg font-bold text-[var(--chocolate)]">
-              {editingId ? "Editar pedido" : "Nuevo pedido"}
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Configura la torta, calcula el total y deja el pedido listo para facturar.
-            </p>
-          </div>
-
-          <form className="space-y-4 p-5" onSubmit={(event) => event.preventDefault()}>
+          <form className="space-y-4" onSubmit={(event) => event.preventDefault()}>
             {message ? <FormMessage message={message} /> : null}
 
             <label className="block">
@@ -541,12 +623,14 @@ export function OrderManager({
               <p className="font-bold text-[var(--chocolate)]">Extras</p>
               <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_100px_90px_auto]">
                 <input
+                  aria-label="Nombre del extra"
                   className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--berry)]"
                   onChange={(event) => setExtraForm((current) => ({ ...current, name: event.target.value }))}
                   placeholder="Vela, topper, empaque"
                   value={extraForm.name}
                 />
                 <input
+                  aria-label="Precio del extra"
                   className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--berry)]"
                   min="0"
                   onChange={(event) => setExtraForm((current) => ({ ...current, price: event.target.value }))}
@@ -556,6 +640,7 @@ export function OrderManager({
                   value={extraForm.price}
                 />
                 <input
+                  aria-label="Cantidad del extra"
                   className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--berry)]"
                   min="1"
                   onChange={(event) => setExtraForm((current) => ({ ...current, quantity: event.target.value }))}
@@ -590,10 +675,132 @@ export function OrderManager({
               ) : null}
             </div>
 
+            {/* Sección de Bocaditos */}
+            <div className="rounded-lg border border-pink-100 bg-pink-50/20 p-4 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-pink-100/60 pb-3">
+                <div>
+                  <p className="font-bold text-[var(--chocolate)] flex items-center gap-1.5 text-base">
+                    <span>🧁</span> Sección de Bocaditos
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Combina bocaditos de sal y dulce. Pedido mínimo de 50 unidades en total.
+                  </p>
+                </div>
+                {totalBocaditosCount > 0 && (
+                  <Badge variant={totalBocaditosCount >= 50 ? "green" : "amber"}>
+                    {totalBocaditosCount} / 50 unidades
+                  </Badge>
+                )}
+              </div>
+
+              {totalBocaditosCount > 0 && (
+                <div className="rounded-lg p-3 text-xs space-y-2 border transition-all duration-300 bg-white shadow-sm shadow-pink-900/5">
+                  {totalBocaditosCount < 50 ? (
+                    <div className="text-amber-800 font-semibold flex flex-col gap-1">
+                      <div className="flex justify-between items-center">
+                        <span>Llevas {totalBocaditosCount} bocaditos agregados</span>
+                        <span className="text-amber-600">Faltan {50 - totalBocaditosCount} unidades</span>
+                      </div>
+                      <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden mt-1 border border-slate-200/50">
+                        <div
+                          className="bg-gradient-to-r from-amber-400 to-amber-500 h-full rounded-full transition-all duration-300"
+                          style={{ width: `${(totalBocaditosCount / 50) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-emerald-800 font-semibold flex flex-col gap-1">
+                      <div className="flex justify-between items-center">
+                        <span>¡Pedido mínimo completado! 🎉</span>
+                        <span className="text-emerald-600">Total: {totalBocaditosCount} unidades</span>
+                      </div>
+                      <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden mt-1 border border-slate-200/50">
+                        <div
+                          className="bg-gradient-to-r from-emerald-400 to-emerald-500 h-full rounded-full transition-all duration-300"
+                          style={{ width: "100%" }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="grid gap-4 md:grid-cols-2">
+                {/* Bocaditos de Sal */}
+                <div className="space-y-3 rounded-lg border border-blue-100/50 bg-blue-50/10 p-3 shadow-inner">
+                  <p className="text-xs font-bold text-blue-700 tracking-wider uppercase">🧂 Bocaditos de Sal</p>
+                  <div className="flex gap-2">
+                    <div className="flex-1 rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-xs font-semibold text-slate-700 flex items-center justify-between shadow-sm">
+                      <span>Bocaditos de Sal</span>
+                      <span className="text-blue-600 bg-blue-50 px-2 py-0.5 rounded text-[10px]">$20.00 / 100u</span>
+                    </div>
+                    <input
+                      aria-label="Cantidad bocaditos de sal"
+                      className="w-16 rounded-lg border border-[var(--line)] bg-white px-2 py-2 text-center text-xs outline-none focus:border-[var(--berry)]"
+                      min="1"
+                      onChange={(event) =>
+                        setBocaditoSalForm((current) => ({ ...current, quantity: event.target.value }))
+                      }
+                      type="number"
+                      value={bocaditoSalForm.quantity}
+                    />
+                    <Button
+                      disabled={isPending || !activeSaltyBocaditos[0]}
+                      onClick={() => {
+                        const prod = activeSaltyBocaditos[0];
+                        if (prod) {
+                          addBocaditoItem(prod.id, bocaditoSalForm.quantity, true);
+                        }
+                      }}
+                      variant="secondary"
+                      className="px-3"
+                    >
+                      <Plus className="size-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Bocaditos de Dulce */}
+                <div className="space-y-3 rounded-lg border border-pink-100/50 bg-pink-50/10 p-3 shadow-inner">
+                  <p className="text-xs font-bold text-pink-700 tracking-wider uppercase">🍬 Bocaditos de Dulce</p>
+                  <div className="flex gap-2">
+                    <div className="flex-1 rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-xs font-semibold text-slate-700 flex items-center justify-between shadow-sm">
+                      <span>Bocaditos de Dulce</span>
+                      <span className="text-pink-600 bg-pink-50 px-2 py-0.5 rounded text-[10px]">$18.00 / 100u</span>
+                    </div>
+                    <input
+                      aria-label="Cantidad bocaditos de dulce"
+                      className="w-16 rounded-lg border border-[var(--line)] bg-white px-2 py-2 text-center text-xs outline-none focus:border-[var(--berry)]"
+                      min="1"
+                      onChange={(event) =>
+                        setBocaditoDulceForm((current) => ({ ...current, quantity: event.target.value }))
+                      }
+                      type="number"
+                      value={bocaditoDulceForm.quantity}
+                    />
+                    <Button
+                      disabled={isPending || !activeSweetBocaditos[0]}
+                      onClick={() => {
+                        const prod = activeSweetBocaditos[0];
+                        if (prod) {
+                          addBocaditoItem(prod.id, bocaditoDulceForm.quantity, false);
+                        }
+                      }}
+                      variant="secondary"
+                      className="px-3"
+                    >
+                      <Plus className="size-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="rounded-lg border border-[var(--line)] bg-white p-4">
               <p className="font-bold text-[var(--chocolate)]">Otros productos</p>
               <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_100px_auto]">
                 <select
+                  aria-label="Producto adicional"
                   className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--berry)]"
                   onChange={(event) =>
                     setProductForm((current) => ({ ...current, productId: event.target.value }))
@@ -608,6 +815,7 @@ export function OrderManager({
                   ))}
                 </select>
                 <input
+                  aria-label="Cantidad del producto adicional"
                   className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--berry)]"
                   min="1"
                   onChange={(event) =>
@@ -625,8 +833,17 @@ export function OrderManager({
               {form.productItems.length ? (
                 <div className="mt-3 space-y-2">
                   {form.productItems.map((item) => (
-                    <div className="flex items-center justify-between rounded-lg bg-[var(--cream)] px-3 py-2 text-sm" key={item.id}>
-                      <span>{item.name} x {item.quantity}</span>
+                    <div className="flex items-center justify-between rounded-lg bg-[var(--cream)] px-3 py-2 text-sm border border-slate-100 hover:bg-[var(--cream)]/80 transition-colors" key={item.id}>
+                      <span className="flex items-center gap-2">
+                        {item.category === "BOCADITOS_SAL" && (
+                          <span className="inline-flex items-center rounded-md bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 ring-1 ring-inset ring-blue-700/10">🧂 Sal</span>
+                        )}
+                        {item.category === "BOCADITOS_DULCE" && (
+                          <span className="inline-flex items-center rounded-md bg-pink-50 px-1.5 py-0.5 text-[10px] font-bold text-pink-700 ring-1 ring-inset ring-pink-700/10">🍬 Dulce</span>
+                        )}
+                        <span className="font-semibold text-slate-800">{item.name}</span>
+                        <span className="text-slate-500 font-medium">x {item.quantity}</span>
+                      </span>
                       <div className="flex items-center gap-2">
                         <strong>{currency(item.total)}</strong>
                         <button
@@ -643,7 +860,7 @@ export function OrderManager({
                 </div>
               ) : (
                 <p className="mt-3 text-sm text-slate-500">
-                  Agrega bocaditos, cupcakes, galletas, postres, velas o extras al pedido.
+                  Agrega cupcakes, galletas, postres, velas o extras al pedido.
                 </p>
               )}
             </div>
@@ -686,6 +903,7 @@ export function OrderManager({
             </div>
           </form>
         </article>
+        </Modal>
 
         <article className="rounded-lg border border-[var(--line)] bg-white shadow-sm shadow-pink-950/5">
           <div className="flex flex-col gap-4 border-b border-[var(--line)] p-5 lg:flex-row lg:items-center lg:justify-between">
@@ -695,15 +913,22 @@ export function OrderManager({
                 Seguimiento de produccion, entrega y facturacion.
               </p>
             </div>
-            <label className="flex min-h-10 items-center gap-2 rounded-lg border border-[var(--line)] bg-white px-3 text-sm text-slate-500 shadow-sm lg:w-80">
-              <Search aria-hidden className="size-4" />
-              <input
-                className="min-w-0 flex-1 outline-none"
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Buscar pedido"
-                value={query}
-              />
-            </label>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <label className="flex min-h-10 items-center gap-2 rounded-lg border border-[var(--line)] bg-white px-3 text-sm text-slate-500 shadow-sm lg:w-80">
+                <Search aria-hidden className="size-4" />
+                <input
+                  aria-label="Buscar pedido"
+                  className="min-w-0 flex-1 outline-none"
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Buscar pedido"
+                  value={query}
+                />
+              </label>
+              <Button onClick={openNewOrder}>
+                <Plus aria-hidden className="size-4" />
+                Nuevo pedido
+              </Button>
+            </div>
           </div>
 
           {filteredOrders.length ? (
@@ -724,7 +949,7 @@ export function OrderManager({
               <CalendarClock aria-hidden className="mx-auto size-10 text-slate-300" />
               <p className="mt-3 font-semibold text-slate-700">Todavia no hay pedidos guardados.</p>
               <p className="mt-1 text-sm text-slate-500">
-                Crea el primero desde el formulario de la izquierda.
+                Crea el primero con el boton Nuevo pedido.
               </p>
             </div>
           )}
@@ -750,11 +975,13 @@ function FormMessage({
 }) {
   return (
     <div
+      aria-live={message.type === "error" ? "assertive" : "polite"}
       className={
         message.type === "error"
           ? "rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700"
           : "rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700"
       }
+      role={message.type === "error" ? "alert" : "status"}
     >
       {message.text}
     </div>
@@ -838,7 +1065,7 @@ function OrderCard({
   pending: boolean;
 }) {
   return (
-    <div className="p-5">
+    <div className="perf-row p-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">

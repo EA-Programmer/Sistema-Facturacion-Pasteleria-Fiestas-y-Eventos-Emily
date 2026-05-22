@@ -21,5 +21,8 @@ export const initialBusinessSettings: BusinessSettingsForm = {
   emailReplyTo: "",
   sriEnvironment: "PRUEBAS",
   sriEnabled: false,
+  signatureFileName: "",
   signatureExpiresAt: "",
+  signatureRegisteredAt: "",
+  hasSignature: false,
 };

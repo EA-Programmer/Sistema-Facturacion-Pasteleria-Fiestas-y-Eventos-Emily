@@ -54,6 +54,72 @@ button {
   box-shadow: 0 0 0 4px rgba(180, 35, 95, 0.12);
 }
 
+.animate-page-enter {
+  animation: page-enter 260ms ease-out both;
+}
+
+.animate-modal-panel {
+  animation: modal-panel 180ms ease-out both;
+}
+
+.animate-toast-in {
+  animation: toast-in 220ms ease-out both;
+}
+
+.perf-section {
+  content-visibility: auto;
+  contain-intrinsic-size: 1px 420px;
+}
+
+.perf-row {
+  content-visibility: auto;
+  contain-intrinsic-size: 1px 168px;
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes modal-panel {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 @media print {
   @page {
     margin: 14mm;

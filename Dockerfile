@@ -3,7 +3,7 @@ FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --config.strict-dep-builds=false
 
 FROM node:22-bookworm-slim AS builder
 

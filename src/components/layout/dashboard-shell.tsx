@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Bell, LogOut, Menu, Search, Sparkles, UserRound } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect } from "react";
+import { LogOut, Sparkles, UserRound } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
 import { BrandMark } from "@/components/brand/brand-mark";
 import { brand } from "@/lib/brand";
@@ -19,9 +20,20 @@ type DashboardShellProps = {
 
 export function DashboardShell({ children, user }: DashboardShellProps) {
   const pathname = usePathname();
+  const router = useRouter();
+
+  useEffect(() => {
+    navigationItems.forEach((item) => router.prefetch(item.href));
+  }, [router]);
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[280px_1fr]">
+      <a
+        className="focus-ring sr-only fixed left-4 top-4 z-50 rounded-lg bg-white px-4 py-2 text-sm font-bold text-[var(--berry)] shadow focus:not-sr-only"
+        href="#contenido-principal"
+      >
+        Saltar al contenido
+      </a>
       <aside className="hidden border-r border-[var(--line)] bg-white/92 px-4 py-5 shadow-[8px_0_30px_rgba(74,33,15,0.04)] backdrop-blur lg:block">
         <BrandMark className="px-2" />
 
@@ -37,7 +49,7 @@ export function DashboardShell({ children, user }: DashboardShellProps) {
           </div>
         </div>
 
-        <nav className="mt-8 space-y-1">
+        <nav aria-label="Navegacion principal" className="mt-8 space-y-1">
           {navigationItems.map((item) => {
             const isActive =
               item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
@@ -47,10 +59,12 @@ export function DashboardShell({ children, user }: DashboardShellProps) {
               <Link
                 key={item.href}
                 href={item.href}
+                prefetch
                 className={cn(
                   "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-pink-50 hover:text-[var(--berry)]",
                   isActive && "bg-pink-50 text-[var(--berry)] shadow-sm ring-1 ring-pink-100",
                 )}
+                aria-current={isActive ? "page" : undefined}
               >
                 <Icon aria-hidden className="size-4" />
                 {item.label}
@@ -64,30 +78,10 @@ export function DashboardShell({ children, user }: DashboardShellProps) {
         <header className="sticky top-0 z-20 border-b border-[var(--line)] bg-white/90 backdrop-blur">
           <div className="flex min-h-16 items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
             <div className="flex items-center gap-3 lg:hidden">
-              <button
-                className="focus-ring grid size-10 place-items-center rounded-lg border border-[var(--line)] bg-white text-slate-700"
-                aria-label="Abrir menu"
-              >
-                <Menu aria-hidden className="size-5" />
-              </button>
               <BrandMark compact />
             </div>
 
-            <label className="hidden min-w-0 flex-1 items-center gap-3 rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm text-slate-500 shadow-sm md:flex lg:max-w-md">
-              <Search aria-hidden className="size-4" />
-              <input
-                className="min-w-0 flex-1 bg-transparent text-slate-700 outline-none"
-                placeholder="Buscar cliente, pedido o factura"
-              />
-            </label>
-
             <div className="ml-auto flex items-center gap-2">
-              <button
-                className="focus-ring grid size-10 place-items-center rounded-lg border border-[var(--line)] bg-white text-slate-700"
-                aria-label="Notificaciones"
-              >
-                <Bell aria-hidden className="size-4" />
-              </button>
               <div className="focus-ring flex min-h-10 items-center gap-2 rounded-lg border border-[var(--line)] bg-white px-2.5 text-sm font-semibold text-slate-700">
                 <UserRound aria-hidden className="size-4" />
                 <span className="hidden sm:inline">{user.name}</span>
@@ -105,7 +99,10 @@ export function DashboardShell({ children, user }: DashboardShellProps) {
             </div>
           </div>
 
-          <nav className="flex gap-2 overflow-x-auto px-4 pb-3 lg:hidden">
+          <nav
+            aria-label="Navegacion principal movil"
+            className="flex gap-2 overflow-x-auto px-4 pb-3 lg:hidden"
+          >
             {navigationItems.map((item) => {
               const isActive =
                 item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
@@ -115,10 +112,12 @@ export function DashboardShell({ children, user }: DashboardShellProps) {
                 <Link
                   key={item.href}
                   href={item.href}
+                  prefetch
                   className={cn(
                     "inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600",
                     isActive && "bg-pink-50 text-[var(--berry)]",
                   )}
+                  aria-current={isActive ? "page" : undefined}
                 >
                   <Icon aria-hidden className="size-4" />
                   {item.label}
@@ -128,7 +127,13 @@ export function DashboardShell({ children, user }: DashboardShellProps) {
           </nav>
         </header>
 
-        <main className="px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+        <main
+          className="animate-page-enter px-4 py-6 sm:px-6 lg:px-8"
+          id="contenido-principal"
+          tabIndex={-1}
+        >
+          {children}
+        </main>
       </div>
     </div>
   );

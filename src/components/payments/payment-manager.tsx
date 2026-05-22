@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useDeferredValue, useMemo, useState, useTransition } from "react";
 import {
   Banknote,
   CreditCard,
@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 import {
   deletePayment,
   savePayment as savePaymentAction,
@@ -31,10 +32,6 @@ import type {
   PaymentStatus,
   PaymentTargetType,
 } from "@/types/payment";
-
-const ordersStorageKey = "emily-orders-v1";
-const invoicesStorageKey = "emily-invoices-v1";
-const paymentsStorageKey = "emily-payments-v1";
 
 const emptyForm: PaymentForm = {
   targetKey: "",
@@ -98,15 +95,11 @@ export function PaymentManager({
   const [payments, setPayments] = useState<PaymentRecord[]>(initialPayments);
   const [form, setForm] = useState<PaymentForm>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isFormOpen, setIsFormOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [message, setMessage] = useState<{ type: "error" | "success"; text: string } | null>(null);
   const [isPending, startTransition] = useTransition();
-
-  useEffect(() => {
-    window.localStorage.setItem(ordersStorageKey, JSON.stringify(orders));
-    window.localStorage.setItem(invoicesStorageKey, JSON.stringify(invoices));
-    window.localStorage.setItem(paymentsStorageKey, JSON.stringify(payments));
-  }, [invoices, orders, payments]);
+  const deferredQuery = useDeferredValue(query);
 
   const editingPayment = editingId ? payments.find((payment) => payment.id === editingId) : undefined;
 
@@ -181,7 +174,7 @@ export function PaymentManager({
     : 0;
 
   const filteredPayments = useMemo(() => {
-    const cleanQuery = normalize(query);
+    const cleanQuery = normalize(deferredQuery);
     if (!cleanQuery) return payments;
 
     return payments.filter((payment) =>
@@ -196,7 +189,7 @@ export function PaymentManager({
         .map(normalize)
         .some((value) => value.includes(cleanQuery)),
     );
-  }, [payments, query]);
+  }, [payments, deferredQuery]);
 
   function setField<K extends keyof PaymentForm>(key: K, value: PaymentForm[K]) {
     setForm((current) => {
@@ -218,6 +211,14 @@ export function PaymentManager({
     setForm(emptyForm);
     setEditingId(null);
     setMessage(null);
+    setIsFormOpen(false);
+  }
+
+  function openNewPayment() {
+    setForm(emptyForm);
+    setEditingId(null);
+    setMessage(null);
+    setIsFormOpen(true);
   }
 
   function errorText(error: unknown) {
@@ -287,6 +288,8 @@ export function PaymentManager({
       paidAt: payment.paidAt.slice(0, 10),
       notes: payment.notes,
     });
+    setMessage(null);
+    setIsFormOpen(true);
   }
 
   function removePayment(id: string) {
@@ -332,149 +335,7 @@ export function PaymentManager({
         <SummaryCard label="Pagos registrados" value={String(payments.length)} />
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[420px_1fr]">
-        <article
-          className="rounded-lg border border-[var(--line)] bg-white shadow-sm shadow-pink-950/5"
-          id="registrar-pago"
-        >
-          <div className="border-b border-[var(--line)] p-5">
-            <h2 className="text-lg font-bold text-[var(--chocolate)]">
-              {editingId ? "Editar pago" : "Registrar pago"}
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Registra pagos completos o abonos de pedidos y facturas.
-            </p>
-          </div>
-
-          <form className="space-y-4 p-5" onSubmit={(event) => event.preventDefault()}>
-            {message ? <FormMessage message={message} /> : null}
-
-            <label className="block">
-              <span className="text-sm font-semibold text-slate-700">Pedido o factura</span>
-              <select
-                className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)]"
-                onChange={(event) => setField("targetKey", event.target.value)}
-                value={form.targetKey}
-              >
-                <option value="">Seleccionar</option>
-                {targets.map((target) => (
-                  <option key={target.key} value={target.key}>
-                    {target.targetCode} - {target.customerName} - {currency(target.total)}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            {selectedTarget ? (
-              <div className="rounded-lg bg-pink-50 p-4 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-slate-700">Total</span>
-                  <strong>{currency(selectedTarget.total)}</strong>
-                </div>
-                <div className="mt-2 flex items-center justify-between">
-                  <span className="font-semibold text-slate-700">Pagado</span>
-                  <strong>{currency(targetPaid)}</strong>
-                </div>
-                <div className="mt-2 flex items-center justify-between border-t border-pink-200 pt-2 text-[var(--chocolate)]">
-                  <span className="font-bold">Saldo</span>
-                  <strong>{currency(targetBalance)}</strong>
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-lg bg-[var(--cream)] p-4 text-sm leading-6 text-slate-600">
-                Si no aparece nada, crea un pedido o genera una factura primero.
-              </div>
-            )}
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block">
-                <span className="text-sm font-semibold text-slate-700">Monto</span>
-                <input
-                  className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)]"
-                  min="0"
-                  onChange={(event) => setField("amount", event.target.value)}
-                  placeholder="0.00"
-                  step="0.01"
-                  type="number"
-                  value={form.amount}
-                />
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-semibold text-slate-700">Fecha</span>
-                <input
-                  className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)]"
-                  onChange={(event) => setField("paidAt", event.target.value)}
-                  type="date"
-                  value={form.paidAt}
-                />
-              </label>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block">
-                <span className="text-sm font-semibold text-slate-700">Metodo</span>
-                <select
-                  className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)]"
-                  onChange={(event) => setField("method", event.target.value as PaymentMethod)}
-                  value={form.method}
-                >
-                  {Object.entries(paymentMethodLabels).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-semibold text-slate-700">Estado</span>
-                <select
-                  className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)]"
-                  onChange={(event) => setField("status", event.target.value as PaymentStatus)}
-                  value={form.status}
-                >
-                  {Object.entries(paymentStatusLabels).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            <label className="block">
-              <span className="text-sm font-semibold text-slate-700">Referencia</span>
-              <input
-                className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)]"
-                onChange={(event) => setField("reference", event.target.value)}
-                placeholder="Numero de transferencia, recibo o nota"
-                value={form.reference}
-              />
-            </label>
-
-            <label className="block">
-              <span className="text-sm font-semibold text-slate-700">Notas</span>
-              <textarea
-                className="mt-2 min-h-20 w-full resize-y rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)]"
-                onChange={(event) => setField("notes", event.target.value)}
-                placeholder="Anticipo, saldo pendiente o detalles de caja."
-                value={form.notes}
-              />
-            </label>
-
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Button className="flex-1" disabled={isPending} onClick={savePayment}>
-                <Plus aria-hidden className="size-4" />
-                {isPending ? "Guardando..." : editingId ? "Guardar cambios" : "Guardar pago"}
-              </Button>
-              <Button className="flex-1" disabled={isPending} onClick={clearForm} variant="secondary">
-                Limpiar
-              </Button>
-            </div>
-          </form>
-        </article>
-
+      <section className="space-y-5">
         <article className="rounded-lg border border-[var(--line)] bg-white shadow-sm shadow-pink-950/5">
           <div className="flex flex-col gap-4 border-b border-[var(--line)] p-5 lg:flex-row lg:items-center lg:justify-between">
             <div>
@@ -483,15 +344,22 @@ export function PaymentManager({
                 Pagos, anticipos y saldos vinculados a pedidos o facturas.
               </p>
             </div>
-            <label className="flex min-h-10 items-center gap-2 rounded-lg border border-[var(--line)] bg-white px-3 text-sm text-slate-500 shadow-sm lg:w-80">
-              <Search aria-hidden className="size-4" />
-              <input
-                className="min-w-0 flex-1 outline-none"
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Buscar pago"
-                value={query}
-              />
-            </label>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <label className="flex min-h-10 items-center gap-2 rounded-lg border border-[var(--line)] bg-white px-3 text-sm text-slate-500 shadow-sm lg:w-80">
+                <Search aria-hidden className="size-4" />
+                <input
+                  aria-label="Buscar pago"
+                  className="min-w-0 flex-1 outline-none"
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Buscar pago"
+                  value={query}
+                />
+              </label>
+              <Button onClick={openNewPayment}>
+                <Plus aria-hidden className="size-4" />
+                Registrar pago
+              </Button>
+            </div>
           </div>
 
           {filteredPayments.length ? (
@@ -518,6 +386,142 @@ export function PaymentManager({
           )}
         </article>
       </section>
+
+      <Modal
+        description="Registra pagos completos o abonos de pedidos y facturas."
+        onClose={clearForm}
+        open={isFormOpen}
+        title={editingId ? "Editar pago" : "Registrar pago"}
+        width="lg"
+      >
+        <form className="space-y-4" onSubmit={(event) => event.preventDefault()}>
+          {message ? <FormMessage message={message} /> : null}
+
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-700">Pedido o factura</span>
+            <select
+              className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)]"
+              onChange={(event) => setField("targetKey", event.target.value)}
+              value={form.targetKey}
+            >
+              <option value="">Seleccionar</option>
+              {targets.map((target) => (
+                <option key={target.key} value={target.key}>
+                  {target.targetCode} - {target.customerName} - {currency(target.total)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {selectedTarget ? (
+            <div className="rounded-lg bg-pink-50 p-4 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-slate-700">Total</span>
+                <strong>{currency(selectedTarget.total)}</strong>
+              </div>
+              <div className="mt-2 flex items-center justify-between">
+                <span className="font-semibold text-slate-700">Pagado</span>
+                <strong>{currency(targetPaid)}</strong>
+              </div>
+              <div className="mt-2 flex items-center justify-between border-t border-pink-200 pt-2 text-[var(--chocolate)]">
+                <span className="font-bold">Saldo</span>
+                <strong>{currency(targetBalance)}</strong>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg bg-[var(--cream)] p-4 text-sm leading-6 text-slate-600">
+              Si no aparece nada, crea un pedido o genera una factura primero.
+            </div>
+          )}
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="text-sm font-semibold text-slate-700">Monto</span>
+              <input
+                className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)]"
+                min="0"
+                onChange={(event) => setField("amount", event.target.value)}
+                placeholder="0.00"
+                step="0.01"
+                type="number"
+                value={form.amount}
+              />
+            </label>
+
+            <label className="block">
+              <span className="text-sm font-semibold text-slate-700">Fecha</span>
+              <input
+                className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)]"
+                onChange={(event) => setField("paidAt", event.target.value)}
+                type="date"
+                value={form.paidAt}
+              />
+            </label>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="text-sm font-semibold text-slate-700">Metodo</span>
+              <select
+                className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)]"
+                onChange={(event) => setField("method", event.target.value as PaymentMethod)}
+                value={form.method}
+              >
+                {Object.entries(paymentMethodLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="text-sm font-semibold text-slate-700">Estado</span>
+              <select
+                className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)]"
+                onChange={(event) => setField("status", event.target.value as PaymentStatus)}
+                value={form.status}
+              >
+                {Object.entries(paymentStatusLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-700">Referencia</span>
+            <input
+              className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)]"
+              onChange={(event) => setField("reference", event.target.value)}
+              placeholder="Numero de transferencia, recibo o nota"
+              value={form.reference}
+            />
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-700">Notas</span>
+            <textarea
+              className="mt-2 min-h-20 w-full resize-y rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)]"
+              onChange={(event) => setField("notes", event.target.value)}
+              placeholder="Anticipo, saldo pendiente o detalles de caja."
+              value={form.notes}
+            />
+          </label>
+
+          <div className="flex flex-col gap-2 border-t border-[var(--line)] pt-4 sm:flex-row sm:justify-end">
+            <Button disabled={isPending} onClick={clearForm} variant="secondary">
+              Cancelar
+            </Button>
+            <Button disabled={isPending} onClick={savePayment}>
+              <Plus aria-hidden className="size-4" />
+              {isPending ? "Guardando..." : editingId ? "Guardar cambios" : "Guardar pago"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }
@@ -538,11 +542,13 @@ function FormMessage({
 }) {
   return (
     <div
+      aria-live={message.type === "error" ? "assertive" : "polite"}
       className={
         message.type === "error"
           ? "rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700"
           : "rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700"
       }
+      role={message.type === "error" ? "alert" : "status"}
     >
       {message.text}
     </div>
@@ -565,7 +571,7 @@ function PaymentRow({
   const Icon = methodIcon(payment.method);
 
   return (
-    <div className="p-5">
+    <div className="perf-row p-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">

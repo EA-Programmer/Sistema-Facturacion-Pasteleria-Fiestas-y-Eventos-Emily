@@ -6,6 +6,12 @@ import {
   PackagePlus,
   ShoppingBag,
   TrendingUp,
+  ShieldCheck,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  Database,
+  Key,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
@@ -18,6 +24,7 @@ import { getInternalInvoices } from "@/lib/invoices-db";
 import { orderStatusLabels } from "@/lib/orders-catalog";
 import { getCakeOrders } from "@/lib/orders-db";
 import { getPaymentRecords } from "@/lib/payments-db";
+import { getBusinessSettings } from "@/lib/settings-db";
 import { currency, shortDate } from "@/lib/utils";
 import type { InternalInvoice, InternalInvoiceStatus } from "@/types/invoice";
 import type { CakeOrderStatus } from "@/types/order";
@@ -84,11 +91,12 @@ function invoiceBadge(status: InternalInvoiceStatus) {
 }
 
 export default async function DashboardPage() {
-  const [orders, invoices, payments, catalog] = await Promise.all([
+  const [orders, invoices, payments, catalog, settings] = await Promise.all([
     getCakeOrders(),
     getInternalInvoices(),
     getPaymentRecords(),
     getCakeCatalog(),
+    getBusinessSettings(),
   ]);
 
   const activeOrders = orders.filter((order) => order.status !== "CANCELADO");
@@ -137,6 +145,13 @@ export default async function DashboardPage() {
     },
   ];
 
+  // Verify checklist items
+  const smtpConfigured = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER);
+  const signatureConfigured = settings.hasSignature;
+  const isSignatureExpired = settings.signatureExpiresAt ? new Date(settings.signatureExpiresAt) < new Date() : false;
+  const rucConfigured = /^\d{13}$/.test(settings.ruc) && settings.ruc !== "PENDIENTE";
+  const sriReady = settings.sriEnabled && signatureConfigured && rucConfigured && !isSignatureExpired;
+
   return (
     <div className="space-y-6">
       <section className="overflow-hidden rounded-lg border border-pink-100 bg-white shadow-sm">
@@ -177,6 +192,148 @@ export default async function DashboardPage() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* SRI Environment & Diagnostics Checklist Panel */}
+      <section className="rounded-xl border border-pink-100 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between border-b border-pink-50 pb-4">
+          <div>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${
+                settings.sriEnabled 
+                  ? settings.sriEnvironment === "PRODUCCION"
+                    ? "bg-red-100 text-red-700 border border-red-200"
+                    : "bg-cyan-100 text-cyan-800 border border-cyan-200"
+                  : "bg-amber-100 text-amber-800 border border-amber-200"
+              }`}>
+                <ShieldCheck className={`size-3.5 ${settings.sriEnabled && settings.sriEnvironment === "PRODUCCION" ? "animate-pulse" : ""}`} />
+                {settings.sriEnabled 
+                  ? settings.sriEnvironment === "PRODUCCION"
+                    ? "AMBIENTE DE PRODUCCIÓN ACTIVO"
+                    : "AMBIENTE DE PRUEBAS ACTIVO"
+                  : "INTEGRACIÓN SRI DESACTIVADA"
+                }
+              </span>
+              <h2 className="text-lg font-bold text-slate-900">Estado de Facturación Electrónica</h2>
+            </div>
+            <p className="mt-1 text-sm text-slate-500">
+              Chequeo automático del sistema y diagnóstico de firmas, correos y RUC para emitir facturas legales.
+            </p>
+          </div>
+          <div className="text-left md:text-right">
+            <span className="text-xs text-slate-400 font-medium bg-slate-50 px-2.5 py-1 rounded-md border border-slate-100">
+              Servicios en tiempo real
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          {/* Check Database */}
+          <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-4">
+            <div className="flex items-center justify-between">
+              <span className="rounded-md bg-blue-50 p-1.5 text-blue-600">
+                <Database className="size-4" />
+              </span>
+              <CheckCircle2 className="size-4 text-emerald-600" />
+            </div>
+            <p className="mt-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Base de datos</p>
+            <p className="mt-1 text-sm font-bold text-slate-900">Conectada</p>
+            <p className="mt-1 text-xs text-slate-500">Prisma & PostgreSQL</p>
+          </div>
+
+          {/* Check SMTP Email */}
+          <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-4">
+            <div className="flex items-center justify-between">
+              <span className="rounded-md bg-pink-50 p-1.5 text-[var(--berry)]">
+                <Mail className="size-4" />
+              </span>
+              {smtpConfigured ? (
+                <CheckCircle2 className="size-4 text-emerald-600" />
+              ) : (
+                <AlertCircle className="size-4 text-amber-600" />
+              )}
+            </div>
+            <p className="mt-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Servicio Correo</p>
+            <p className="mt-1 text-sm font-bold text-slate-900 truncate">
+              {smtpConfigured ? "Gmail SMTP listo" : "Sin Configurar"}
+            </p>
+            <p className="mt-1 text-xs text-slate-500 truncate" title={smtpConfigured ? process.env.SMTP_USER : "Configura SMTP en .env"}>
+              {smtpConfigured ? process.env.SMTP_USER : "Sin credenciales"}
+            </p>
+          </div>
+
+          {/* Check Digital Signature */}
+          <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-4">
+            <div className="flex items-center justify-between">
+              <span className="rounded-md bg-purple-50 p-1.5 text-purple-600">
+                <Key className="size-4" />
+              </span>
+              {signatureConfigured ? (
+                isSignatureExpired ? (
+                  <XCircle className="size-4 text-red-600" />
+                ) : (
+                  <CheckCircle2 className="size-4 text-emerald-600" />
+                )
+              ) : (
+                <AlertCircle className="size-4 text-amber-600" />
+              )}
+            </div>
+            <p className="mt-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Firma Digital</p>
+            <p className="mt-1 text-sm font-bold text-slate-900 truncate">
+              {signatureConfigured ? "Registrada" : "Pendiente"}
+            </p>
+            <p className="mt-1 text-xs text-slate-500 truncate">
+              {signatureConfigured 
+                ? isSignatureExpired 
+                  ? "Expirada" 
+                  : `Vence: ${settings.signatureExpiresAt}`
+                : "Sube tu archivo .p12"
+              }
+            </p>
+          </div>
+
+          {/* Check RUC & Address */}
+          <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-4">
+            <div className="flex items-center justify-between">
+              <span className="rounded-md bg-indigo-50 p-1.5 text-indigo-600">
+                <FileText className="size-4" />
+              </span>
+              {rucConfigured ? (
+                <CheckCircle2 className="size-4 text-emerald-600" />
+              ) : (
+                <AlertCircle className="size-4 text-amber-600" />
+              )}
+            </div>
+            <p className="mt-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Datos de Emisor</p>
+            <p className="mt-1 text-sm font-bold text-slate-900 truncate">
+              {rucConfigured ? settings.ruc : "Falta RUC"}
+            </p>
+            <p className="mt-1 text-xs text-slate-500 truncate">
+              {rucConfigured ? "RUC Válido 13 dígitos" : "Falta cambiar 'PENDIENTE'"}
+            </p>
+          </div>
+
+          {/* Check SRI Status */}
+          <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-4">
+            <div className="flex items-center justify-between">
+              <span className="rounded-md bg-teal-50 p-1.5 text-teal-600">
+                <ShieldCheck className="size-4" />
+              </span>
+              {sriReady ? (
+                <CheckCircle2 className="size-4 text-emerald-600 animate-bounce" />
+              ) : (
+                <AlertCircle className="size-4 text-amber-600" />
+              )}
+            </div>
+            <p className="mt-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Listo para SRI</p>
+            <p className="mt-1 text-sm font-bold text-slate-900">
+              {sriReady ? "Preparado" : "Pendientes"}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {sriReady ? "¡Facturación activa!" : "Revisa los campos"}
+            </p>
           </div>
         </div>
       </section>

@@ -3,8 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/auth";
 import { initialBusinessSettings } from "@/lib/settings-catalog";
-import { settingsId } from "@/lib/settings-db";
+import { getBusinessSettings, settingsId } from "@/lib/settings-db";
 import { prisma } from "@/lib/prisma";
+import {
+  encryptSignaturePassword,
+  removeSignatureFile,
+  saveSignatureFile,
+  validateSignatureFile,
+} from "@/lib/sri-signature-storage";
 import { failValidation, isValidEcuadorRuc, isValidEmail, onlyDigits } from "@/lib/validation";
 import type { BusinessSettingsForm } from "@/types/settings";
 
@@ -93,5 +99,76 @@ export async function resetBusinessSettings() {
   await requireAdminSession();
 
   await saveBusinessSettings(initialBusinessSettings);
-  return initialBusinessSettings;
+  return getBusinessSettings();
+}
+
+export async function registerElectronicSignature(formData: FormData) {
+  await requireAdminSession();
+
+  const file = formData.get("signatureFile");
+  const password = String(formData.get("signaturePassword") ?? "");
+  const expiresAt = String(formData.get("signatureExpiresAt") ?? "");
+
+  if (!(file instanceof File)) failValidation("Selecciona el archivo de firma electronica.");
+  if (!password.trim()) failValidation("Ingresa la clave de la firma electronica.");
+  if (!expiresAt) failValidation("Ingresa la fecha de vencimiento de la firma.");
+
+  const expirationDate = parseOptionalDate(expiresAt);
+  if (!expirationDate || expirationDate <= new Date()) {
+    failValidation("La fecha de vencimiento de la firma debe ser futura.");
+  }
+
+  validateSignatureFile(file);
+
+  const settings = await prisma.businessSettings.findUnique({
+    where: { id: settingsId },
+  });
+
+  if (!settings?.ruc) failValidation("Guarda el RUC de la empresa antes de registrar la firma.");
+
+  const storedFile = await saveSignatureFile(file, settings.ruc);
+
+  await prisma.businessSettings.update({
+    where: { id: settingsId },
+    data: {
+      signatureFileName: storedFile.originalName,
+      signatureFilePath: storedFile.path,
+      signaturePassword: encryptSignaturePassword(password),
+      signatureExpiresAt: expirationDate,
+      signatureRegisteredAt: new Date(),
+    },
+  });
+
+  await removeSignatureFile(settings.signatureFilePath);
+
+  revalidatePath("/configuracion");
+  revalidatePath("/facturas");
+
+  return getBusinessSettings();
+}
+
+export async function removeElectronicSignature() {
+  await requireAdminSession();
+
+  const settings = await prisma.businessSettings.findUnique({
+    where: { id: settingsId },
+    select: { signatureFilePath: true },
+  });
+
+  await prisma.businessSettings.update({
+    where: { id: settingsId },
+    data: {
+      signatureFileName: null,
+      signatureFilePath: null,
+      signaturePassword: null,
+      signatureRegisteredAt: null,
+    },
+  });
+
+  await removeSignatureFile(settings?.signatureFilePath);
+
+  revalidatePath("/configuracion");
+  revalidatePath("/facturas");
+
+  return getBusinessSettings();
 }
