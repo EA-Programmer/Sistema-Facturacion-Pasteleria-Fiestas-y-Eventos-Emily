@@ -1,10 +1,11 @@
+import { escapeHtml } from "@/lib/validation";
 import type { InternalInvoice } from "@/types/invoice";
 import type { BusinessSettingsForm } from "@/types/settings";
 
 function formatDate(dateStr: string | Date | null | undefined): string {
   if (!dateStr) return "";
   const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return String(dateStr);
+  if (Number.isNaN(d.getTime())) return escapeHtml(String(dateStr));
   const day = String(d.getDate()).padStart(2, "0");
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const year = d.getFullYear();
@@ -12,25 +13,28 @@ function formatDate(dateStr: string | Date | null | undefined): string {
 }
 
 export function generateInvoiceHtmlEmail(invoice: InternalInvoice, settings: BusinessSettingsForm): string {
-  const customerName = invoice.customerName.toUpperCase();
-  const customerDocument = invoice.customerDocument;
-  const businessName = settings.businessName.toUpperCase();
-  const tradeName = settings.tradeName ? settings.tradeName.toUpperCase() : businessName;
-  const logoUrl = settings.logoPath ? settings.logoPath : "";
-
+  const customerName = escapeHtml(invoice.customerName.toUpperCase());
+  const customerDocument = escapeHtml(invoice.customerDocument);
+  const businessName = escapeHtml(settings.businessName.toUpperCase());
+  const tradeName = settings.tradeName ? escapeHtml(settings.tradeName.toUpperCase()) : businessName;
+  const logoUrl = settings.logoPath ? escapeHtml(settings.logoPath) : "";
   const formattedDate = formatDate(invoice.issuedAt);
-  const sequence = invoice.number;
+  const sequence = escapeHtml(invoice.number);
   const accessKey = invoice.sriAccessKey || "BORRADOR - PENDIENTE SRI";
+  const formattedAccessKey =
+    accessKey.length === 49
+      ? `${escapeHtml(accessKey.slice(0, 24))}<br/>${escapeHtml(accessKey.slice(24))}`
+      : escapeHtml(accessKey);
 
-  // Formatear la clave de acceso en dos partes o estilizada para que no se desborde
-  const formattedAccessKey = accessKey.length === 49 
-    ? `${accessKey.slice(0, 24)}<br/>${accessKey.slice(24)}` 
-    : accessKey;
-
-  // Si no hay logo registrado, mostramos una cabecera de texto estilizada
   const logoHtml = logoUrl
     ? `<img src="${logoUrl}" alt="${tradeName}" style="max-height: 80px; margin-bottom: 20px;" />`
-    : `<div style="font-family: 'Outfit', sans-serif; font-size: 24px; font-weight: bold; color: #b91c1c; margin-bottom: 20px; letter-spacing: 1px;">🍰 ${tradeName}</div>`;
+    : `<div style="font-size: 24px; font-weight: bold; color: #b91c1c; margin-bottom: 20px; letter-spacing: 1px;">${tradeName}</div>`;
+
+  const contactLines = [
+    settings.ruc ? `<div style="margin-top: 2px;">RUC: ${escapeHtml(settings.ruc)}</div>` : "",
+    settings.phone ? `<div style="margin-top: 2px;">Telefono: ${escapeHtml(settings.phone)}</div>` : "",
+    settings.address ? `<div style="margin-top: 2px;">Direccion: ${escapeHtml(settings.address)}</div>` : "",
+  ].join("");
 
   return `
 <!DOCTYPE html>
@@ -38,15 +42,14 @@ export function generateInvoiceHtmlEmail(invoice: InternalInvoice, settings: Bus
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Documento de Factura electrónico</title>
+  <title>Factura electronica</title>
   <style>
     body {
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-family: Helvetica, Arial, sans-serif;
       background-color: #f8fafc;
       color: #334155;
       margin: 0;
       padding: 0;
-      -webkit-font-smoothing: antialiased;
     }
     .wrapper {
       width: 100%;
@@ -60,20 +63,17 @@ export function generateInvoiceHtmlEmail(invoice: InternalInvoice, settings: Bus
       border: 1px solid #e2e8f0;
       border-radius: 16px;
       padding: 40px;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
     }
     .header {
       text-align: center;
       margin-bottom: 30px;
     }
     .recipient-title {
-      font-family: 'Outfit', 'Arial Black', sans-serif;
       font-size: 28px;
       font-weight: 800;
       color: #084c5e;
       text-align: center;
       margin: 0 0 15px 0;
-      letter-spacing: -0.5px;
     }
     .intro-text {
       font-size: 15px;
@@ -88,7 +88,6 @@ export function generateInvoiceHtmlEmail(invoice: InternalInvoice, settings: Bus
       margin: 25px 0;
     }
     .doc-type {
-      font-family: 'Helvetica Neue', Arial, sans-serif;
       font-size: 26px;
       font-weight: 700;
       color: #b91c1c;
@@ -101,14 +100,10 @@ export function generateInvoiceHtmlEmail(invoice: InternalInvoice, settings: Bus
       padding: 25px 30px;
       color: #ffffff;
       margin-bottom: 30px;
-      box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
     }
     .card-row {
       margin-bottom: 15px;
       overflow: hidden;
-    }
-    .card-row:last-child {
-      margin-bottom: 0;
     }
     .card-label {
       float: left;
@@ -117,7 +112,6 @@ export function generateInvoiceHtmlEmail(invoice: InternalInvoice, settings: Bus
       font-weight: bold;
       color: #93c5fd;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
     }
     .card-value {
       margin-left: 140px;
@@ -149,24 +143,17 @@ export function generateInvoiceHtmlEmail(invoice: InternalInvoice, settings: Bus
 <body>
   <div class="wrapper">
     <div class="container">
-      <div class="header">
-        ${logoHtml}
-      </div>
-
+      <div class="header">${logoHtml}</div>
       <h1 class="recipient-title">${customerName}</h1>
-
       <p class="intro-text">
-        Has recibido el siguiente comprobante electrónico a nombre de <strong>${customerName}</strong>,<br/>
-        con cédula/RUC <strong>${customerDocument}</strong> de:
+        Has recibido el siguiente comprobante electronico a nombre de <strong>${customerName}</strong>,<br/>
+        con cedula/RUC <strong>${customerDocument}</strong> de:
       </p>
-
       <hr class="divider" />
-
       <h2 class="doc-type">Factura</h2>
-
       <div class="card">
         <div class="card-row">
-          <div class="card-label">Fecha emisión:</div>
+          <div class="card-label">Fecha emision:</div>
           <div class="card-value">${formattedDate}</div>
         </div>
         <div class="card-row">
@@ -180,20 +167,16 @@ export function generateInvoiceHtmlEmail(invoice: InternalInvoice, settings: Bus
           </div>
         </div>
       </div>
-
       <div class="signature">
         Atentamente,<br/>
-        <div class="signature-title">${settings.businessName.toUpperCase()}</div>
-        ${settings.ruc ? `<div style="margin-top: 2px;">RUC: ${settings.ruc}</div>` : ""}
-        ${settings.phone ? `<div style="margin-top: 2px;">Teléfono: ${settings.phone}</div>` : ""}
-        ${settings.address ? `<div style="margin-top: 2px;">Direc: ${settings.address}</div>` : ""}
+        <div class="signature-title">${businessName}</div>
+        ${contactLines}
       </div>
     </div>
-    
     <div class="footer">
-      Este es un correo automático de facturación electrónica.<br/>
+      Este es un correo automatico de facturacion electronica.<br/>
       Los documentos XML y RIDE PDF correspondientes se encuentran adjuntos a este correo.<br/>
-      Factura generada automáticamente por <strong>Astudillo Technologies</strong>.
+      Factura generada automaticamente por <strong>Astudillo Technologies</strong>.
     </div>
   </div>
 </body>

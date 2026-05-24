@@ -2,12 +2,15 @@
 
 import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { requireSameOriginRequest } from "@/lib/action-security";
 import { requireAdminSession } from "@/lib/auth";
 import { getCakeOrders } from "@/lib/orders-db";
 import { prisma } from "@/lib/prisma";
 import { settingsId } from "@/lib/settings-db";
-import { failValidation, isPastDateInput, roundMoney } from "@/lib/validation";
+import { assertAllowedValue, assertSafeId, cleanText, failValidation, isPastDateInput, roundMoney } from "@/lib/validation";
 import type { CakeOrder, CakeOrderStatus } from "@/types/order";
+
+const orderStatuses = ["BORRADOR", "CONFIRMADO", "EN_PRODUCCION", "LISTO", "ENTREGADO", "CANCELADO"] as const satisfies readonly CakeOrderStatus[];
 
 function parseDeliveryDate(value: string) {
   if (!value) return null;
@@ -56,19 +59,29 @@ function buildCustomization(order: CakeOrder): Prisma.InputJsonObject {
 }
 
 export async function saveOrder(order: CakeOrder) {
+  await requireSameOriginRequest();
   await requireAdminSession();
+
+  const orderId = assertSafeId(order.id, "identificador del pedido");
+  const status = assertAllowedValue(order.status, orderStatuses, "El estado del pedido");
+  const customerId = assertSafeId(order.customerId, "identificador del cliente");
+  const portionsId = assertSafeId(order.portionsId, "identificador de porciones");
+  const flavorId = assertSafeId(order.flavorId, "identificador de sabor");
+  const fillingId = assertSafeId(order.fillingId, "identificador de relleno");
+  const coverId = assertSafeId(order.coverId, "identificador de cobertura");
+  const modelId = assertSafeId(order.modelId, "identificador de modelo");
 
   if (!order.customerId) failValidation("Selecciona un cliente para el pedido.");
   if (!order.deliveryDate) failValidation("Selecciona la fecha de entrega.");
   if (isPastDateInput(order.deliveryDate)) failValidation("La fecha de entrega no puede ser anterior a hoy.");
 
   const [customer, portion, flavor, filling, cover, model, settings] = await Promise.all([
-    prisma.customer.findFirst({ where: { id: order.customerId, active: true } }),
-    prisma.cakePortion.findFirst({ where: { id: order.portionsId, active: true } }),
-    prisma.cakeFlavor.findFirst({ where: { id: order.flavorId, active: true } }),
-    prisma.cakeFilling.findFirst({ where: { id: order.fillingId, active: true } }),
-    prisma.cakeCover.findFirst({ where: { id: order.coverId, active: true } }),
-    prisma.cakeModel.findFirst({ where: { id: order.modelId, active: true } }),
+    prisma.customer.findFirst({ where: { id: customerId, active: true } }),
+    prisma.cakePortion.findFirst({ where: { id: portionsId, active: true } }),
+    prisma.cakeFlavor.findFirst({ where: { id: flavorId, active: true } }),
+    prisma.cakeFilling.findFirst({ where: { id: fillingId, active: true } }),
+    prisma.cakeCover.findFirst({ where: { id: coverId, active: true } }),
+    prisma.cakeModel.findFirst({ where: { id: modelId, active: true } }),
     prisma.businessSettings.findUnique({
       where: { id: settingsId },
       select: { taxRate: true },
@@ -83,7 +96,7 @@ export async function saveOrder(order: CakeOrder) {
   if (!model) failValidation("Selecciona un modelo activo del catalogo.");
 
   const extras = order.extras.map((extra) => {
-    const name = extra.name.trim();
+    const name = cleanText(extra.name, "El nombre del extra", 120, true);
     const price = Number(extra.price);
     const quantity = Number(extra.quantity);
 
@@ -92,7 +105,7 @@ export async function saveOrder(order: CakeOrder) {
     if (!Number.isInteger(quantity) || quantity <= 0) failValidation("La cantidad de cada extra debe ser un numero entero mayor a cero.");
 
     return {
-      id: extra.id,
+      id: assertSafeId(extra.id, "identificador del extra"),
       name,
       price: roundMoney(price),
       quantity,
@@ -100,6 +113,7 @@ export async function saveOrder(order: CakeOrder) {
   });
 
   const productIds = order.productItems.map((item) => item.productId).filter(Boolean);
+  productIds.forEach((productId) => assertSafeId(productId, "identificador del producto"));
   const products = productIds.length
     ? await prisma.product.findMany({
         where: {
@@ -121,7 +135,7 @@ export async function saveOrder(order: CakeOrder) {
 
     const unitPrice = roundMoney(Number(product.basePrice));
     return {
-      id: item.id,
+      id: assertSafeId(item.id, "identificador del item del pedido"),
       productId: product.id,
       name: product.name,
       category: product.category,
@@ -157,6 +171,8 @@ export async function saveOrder(order: CakeOrder) {
 
   const payload: CakeOrder = {
     ...order,
+    id: orderId,
+    status,
     customerId: customer.id,
     customerName: customer.name,
     customerDocument: customer.document,
@@ -175,6 +191,11 @@ export async function saveOrder(order: CakeOrder) {
     modelId: model.id,
     modelName: model.name,
     modelExtraPrice: Number(model.extraPrice),
+    deliveryTime: cleanText(order.deliveryTime, "La hora de entrega", 20),
+    deliveryAddress: cleanText(order.deliveryAddress, "La direccion de entrega", 220),
+    dedication: cleanText(order.dedication, "La dedicatoria", 160),
+    referenceImageNote: cleanText(order.referenceImageNote, "La nota de referencia", 300),
+    notes: cleanText(order.notes, "Las notas del pedido", 700),
     extras,
     productItems,
     subtotal,
@@ -197,10 +218,10 @@ export async function saveOrder(order: CakeOrder) {
         status: payload.status,
         deliveryDate: parseDeliveryDate(payload.deliveryDate),
         deliveryTime: payload.deliveryTime || null,
-        deliveryAddress: payload.deliveryAddress.trim() || null,
-        dedication: payload.dedication.trim() || null,
-        referenceImageNote: payload.referenceImageNote.trim() || null,
-        notes: payload.notes.trim() || null,
+        deliveryAddress: payload.deliveryAddress || null,
+        dedication: payload.dedication || null,
+        referenceImageNote: payload.referenceImageNote || null,
+        notes: payload.notes || null,
         subtotal: payload.subtotal,
         tax: payload.tax,
         total: payload.total,
@@ -212,10 +233,10 @@ export async function saveOrder(order: CakeOrder) {
         status: payload.status,
         deliveryDate: parseDeliveryDate(payload.deliveryDate),
         deliveryTime: payload.deliveryTime || null,
-        deliveryAddress: payload.deliveryAddress.trim() || null,
-        dedication: payload.dedication.trim() || null,
-        referenceImageNote: payload.referenceImageNote.trim() || null,
-        notes: payload.notes.trim() || null,
+        deliveryAddress: payload.deliveryAddress || null,
+        dedication: payload.dedication || null,
+        referenceImageNote: payload.referenceImageNote || null,
+        notes: payload.notes || null,
         subtotal: payload.subtotal,
         tax: payload.tax,
         total: payload.total,
@@ -252,17 +273,19 @@ export async function saveOrder(order: CakeOrder) {
 }
 
 export async function deleteOrder(id: string) {
+  await requireSameOriginRequest();
   await requireAdminSession();
+  const orderId = assertSafeId(id, "identificador del pedido");
 
   try {
-    await prisma.order.delete({ where: { id } });
+    await prisma.order.delete({ where: { id: orderId } });
   } catch (error) {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       (error.code === "P2003" || error.code === "P2014")
     ) {
       await prisma.order.update({
-        where: { id },
+        where: { id: orderId },
         data: { status: "CANCELADO" },
       });
     } else if (
@@ -276,11 +299,14 @@ export async function deleteOrder(id: string) {
 }
 
 export async function updateOrderStatus(id: string, status: CakeOrderStatus) {
+  await requireSameOriginRequest();
   await requireAdminSession();
+  const orderId = assertSafeId(id, "identificador del pedido");
+  const nextStatus = assertAllowedValue(status, orderStatuses, "El estado del pedido");
 
   await prisma.order.update({
-    where: { id },
-    data: { status },
+    where: { id: orderId },
+    data: { status: nextStatus },
   });
 
   return refreshOrders();

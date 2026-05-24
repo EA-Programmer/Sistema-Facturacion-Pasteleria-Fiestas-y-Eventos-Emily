@@ -2,6 +2,7 @@
 
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { isSameOriginRequest, requireSameOriginRequest } from "@/lib/action-security";
 import { clearAdminSession, createAdminSession } from "@/lib/auth";
 import { verifyPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
@@ -47,6 +48,10 @@ function recordFailedLogin(key: string) {
 }
 
 export async function loginAction(_state: LoginState, formData: FormData): Promise<LoginState> {
+  if (!(await isSameOriginRequest())) {
+    return { error: "La solicitud fue bloqueada por seguridad. Vuelve a cargar la pagina." };
+  }
+
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
 
@@ -84,6 +89,7 @@ export async function loginAction(_state: LoginState, formData: FormData): Promi
 }
 
 export async function logoutAction() {
+  await requireSameOriginRequest();
   await clearAdminSession();
   redirect("/login");
 }

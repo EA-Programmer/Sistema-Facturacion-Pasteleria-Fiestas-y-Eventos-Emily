@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { existsSync } from "fs";
 import { readFile } from "fs/promises";
+import { requireSameOriginRequest } from "@/lib/action-security";
 import { requireAdminSession } from "@/lib/auth";
 import { getInternalInvoices, statusToPrisma } from "@/lib/invoices-db";
 import { prisma } from "@/lib/prisma";
@@ -13,9 +14,32 @@ import { buildSriInvoiceXml } from "@/lib/sri-xml";
 import { generateInvoicePdfBuffer } from "@/lib/pdf-generator";
 import { generateInvoiceHtmlEmail } from "@/lib/email-templates";
 import { sendEmail } from "@/lib/email-sender";
-import { failValidation, validateCustomerDocument } from "@/lib/validation";
+import {
+  assertAllowedValue,
+  assertSafeId,
+  cleanEmailHeader,
+  cleanText,
+  failValidation,
+  isValidEmail,
+  validateCustomerDocument,
+} from "@/lib/validation";
 import type { InvoiceEmailLog } from "@/types/email";
 import type { InternalInvoiceStatus } from "@/types/invoice";
+
+const invoiceStatuses = [
+  "PENDIENTE",
+  "GENERADA_XML",
+  "FIRMADA",
+  "ENVIADA_SRI",
+  "RECIBIDA",
+  "EMITIDA",
+  "ENVIADA",
+  "AUTORIZADA",
+  "DEVUELTA",
+  "NO_AUTORIZADA",
+  "ERROR_CONEXION",
+  "ANULADA",
+] as const satisfies readonly InternalInvoiceStatus[];
 
 function formatSequence(value: number) {
   return String(value || 1).padStart(9, "0");
@@ -50,10 +74,12 @@ async function createInvoiceNumber() {
 }
 
 export async function generateInvoice(orderId: string) {
+  await requireSameOriginRequest();
   await requireAdminSession();
+  const selectedOrderId = assertSafeId(orderId, "identificador del pedido");
 
   const order = await prisma.order.findUnique({
-    where: { id: orderId },
+    where: { id: selectedOrderId },
     select: {
       id: true,
       customerId: true,
@@ -144,14 +170,18 @@ export async function generateInvoice(orderId: string) {
 }
 
 export async function recordInvoiceEmail(log: InvoiceEmailLog) {
+  await requireSameOriginRequest();
   await requireAdminSession();
 
-  if (!log.invoiceId) failValidation("Selecciona una factura valida.");
-  if (!log.to.trim()) failValidation("La factura no tiene correo de cliente.");
+  const invoiceId = assertSafeId(log.invoiceId, "identificador de la factura");
+  const to = cleanText(log.to, "El correo de destino", 160, true);
+  const subject = cleanEmailHeader(log.subject, "El asunto", 140);
+  const body = cleanText(log.body, "El mensaje del correo", 1000);
+  if (!isValidEmail(to)) failValidation("Ingresa un correo valido para enviar la factura.");
 
   // 1. Obtener la factura de la base de datos
   const invoice = await prisma.invoice.findUnique({
-    where: { id: log.invoiceId },
+    where: { id: invoiceId },
     select: { id: true, number: true, status: true, sriAccessKey: true },
   });
 
@@ -165,7 +195,7 @@ export async function recordInvoiceEmail(log: InvoiceEmailLog) {
   // Automatizar la emisión y firma electrónica SRI antes de enviar por correo si aún no se ha emitido
   if (settings.sriEnabled && settings.signatureFilePath && (!invoice.sriAccessKey || invoice.status === "BORRADOR")) {
     try {
-      const job = await enqueueSriJob(log.invoiceId);
+      const job = await enqueueSriJob(invoiceId);
       await processSriJob(job.id);
     } catch (error) {
       console.error("Error al procesar SRI automáticamente antes de enviar correo:", error);
@@ -174,7 +204,7 @@ export async function recordInvoiceEmail(log: InvoiceEmailLog) {
 
   // 2. Cargar los detalles completos como InternalInvoice y la configuración
   const fullInvoices = await getInternalInvoices();
-  const fullInvoice = fullInvoices.find((inv) => inv.id === log.invoiceId);
+  const fullInvoice = fullInvoices.find((inv) => inv.id === invoiceId);
   if (!fullInvoice) failValidation("No se pudieron cargar los detalles completos de la factura.");
   
   const normalizedSettings = await getBusinessSettings();
@@ -191,7 +221,7 @@ export async function recordInvoiceEmail(log: InvoiceEmailLog) {
   // Obtener o generar XML
   let xmlContent = "";
   const invoiceForXml = await prisma.invoice.findUnique({
-    where: { id: log.invoiceId },
+    where: { id: invoiceId },
     include: {
       customer: true,
       order: {
@@ -221,31 +251,8 @@ export async function recordInvoiceEmail(log: InvoiceEmailLog) {
         );
         xmlContent = xml;
       } catch (err) {
-        console.warn("Generando XML básico de borrador debido a:", err);
-        const dateStr = new Date().toLocaleDateString("es-EC");
-        xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
-<factura id="comprobante" version="1.1.0">
-  <infoTributaria>
-    <ambiente>${settings.sriEnvironment === "PRODUCCION" ? "2" : "1"}</ambiente>
-    <tipoEmision>1</tipoEmision>
-    <razonSocial>${settings.businessName}</razonSocial>
-    <ruc>${settings.ruc}</ruc>
-    <claveAcceso>${fullInvoice.sriAccessKey || "BORRADOR"}</claveAcceso>
-    <codDoc>01</codDoc>
-    <estab>${settings.establishmentCode}</estab>
-    <ptoEmi>${settings.emissionPointCode}</ptoEmi>
-    <secuencial>${invoice.number.split("-")[2] || "000000001"}</secuencial>
-  </infoTributaria>
-  <infoFactura>
-    <fechaEmision>${dateStr}</fechaEmision>
-    <dirEstablecimiento>${settings.address}</dirEstablecimiento>
-    <obligadoContabilidad>NO</obligadoContabilidad>
-    <identificacionComprador>${invoiceForXml.customer.document}</identificacionComprador>
-    <razonSocialComprador>${invoiceForXml.customer.name}</razonSocialComprador>
-    <totalSinImpuestos>${Number(invoiceForXml.subtotal).toFixed(2)}</totalSinImpuestos>
-    <importeTotal>${Number(invoiceForXml.total).toFixed(2)}</importeTotal>
-  </infoFactura>
-</factura>`;
+        console.warn("No se pudo generar el XML para adjuntarlo al correo:", err);
+        xmlContent = "";
       }
     }
   }
@@ -267,15 +274,15 @@ export async function recordInvoiceEmail(log: InvoiceEmailLog) {
 
   const html = generateInvoiceHtmlEmail(fullInvoice, normalizedSettings);
   let emailStatus: "ENVIADO" | "ERROR" = "ENVIADO";
+  const fromAddress = normalizedSettings.emailFromAddress || normalizedSettings.email || "noreply@smartmenucloud.com";
+  const fromName = cleanEmailHeader(normalizedSettings.emailFromName || normalizedSettings.businessName, "El remitente", 120);
+  if (!isValidEmail(fromAddress)) failValidation("Configura un correo remitente valido antes de enviar facturas.");
 
   try {
-    const fromAddress = normalizedSettings.emailFromAddress || normalizedSettings.email || "noreply@smartmenucloud.com";
-    const fromName = normalizedSettings.emailFromName || normalizedSettings.businessName;
-
     await sendEmail({
       from: `${fromName} <${fromAddress}>`,
-      to: log.to.trim(),
-      subject: log.subject.trim(),
+      to,
+      subject,
       html: html,
       attachments,
     });
@@ -291,10 +298,10 @@ export async function recordInvoiceEmail(log: InvoiceEmailLog) {
     data: {
       invoiceId: invoice.id,
       invoiceNumber: invoice.number,
-      to: log.to.trim(),
-      from: `${normalizedSettings.emailFromName || normalizedSettings.businessName} <${normalizedSettings.emailFromAddress || normalizedSettings.email || "noreply@smartmenucloud.com"}>`,
-      subject: log.subject.trim(),
-      body: log.body,
+      to,
+      from: `${fromName} <${fromAddress}>`,
+      subject,
+      body,
       status: emailStatus,
       sentAt: new Date(),
     },
@@ -329,14 +336,17 @@ export async function recordInvoiceEmail(log: InvoiceEmailLog) {
 }
 
 export async function updateInvoiceStatus(id: string, status: InternalInvoiceStatus) {
+  await requireSameOriginRequest();
   await requireAdminSession();
+  const invoiceId = assertSafeId(id, "identificador de la factura");
+  const nextStatus = assertAllowedValue(status, invoiceStatuses, "El estado de la factura");
 
   await prisma.invoice.update({
-    where: { id },
+    where: { id: invoiceId },
     data: {
-      status: statusToPrisma[status],
-      sentAt: status === "ENVIADA" ? new Date() : undefined,
-      issuedAt: status === "EMITIDA" || status === "ENVIADA" ? new Date() : undefined,
+      status: statusToPrisma[nextStatus],
+      sentAt: nextStatus === "ENVIADA" ? new Date() : undefined,
+      issuedAt: nextStatus === "EMITIDA" || nextStatus === "ENVIADA" ? new Date() : undefined,
     },
   });
 
@@ -344,17 +354,19 @@ export async function updateInvoiceStatus(id: string, status: InternalInvoiceSta
 }
 
 export async function deleteInvoice(id: string) {
+  await requireSameOriginRequest();
   await requireAdminSession();
+  const invoiceId = assertSafeId(id, "identificador de la factura");
 
   try {
-    await prisma.invoice.delete({ where: { id } });
+    await prisma.invoice.delete({ where: { id: invoiceId } });
   } catch (error) {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       (error.code === "P2003" || error.code === "P2014")
     ) {
       await prisma.invoice.update({
-        where: { id },
+        where: { id: invoiceId },
         data: { status: "ANULADA" },
       });
     } else if (
@@ -368,9 +380,11 @@ export async function deleteInvoice(id: string) {
 }
 
 export async function emitInvoiceToSri(id: string) {
+  await requireSameOriginRequest();
   await requireAdminSession();
+  const invoiceId = assertSafeId(id, "identificador de la factura");
 
-  const job = await enqueueSriJob(id);
+  const job = await enqueueSriJob(invoiceId);
   await processSriJob(job.id);
 
   revalidatePath("/facturas");
@@ -381,6 +395,7 @@ export async function emitInvoiceToSri(id: string) {
 }
 
 export async function retrySriQueue() {
+  await requireSameOriginRequest();
   await requireAdminSession();
 
   await retryDueSriJobs();

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { settingsId } from "@/lib/settings-db";
-import { decryptSignaturePassword } from "@/lib/sri-signature-storage";
+import { decryptSignaturePassword, readSignatureFileBuffer } from "@/lib/sri-signature-storage";
 import { signXmlInvoice } from "@/lib/sri-signer";
 import { buildSriInvoiceXml, writeSriXml } from "@/lib/sri-xml";
 import { failValidation } from "@/lib/validation";
@@ -121,11 +121,12 @@ export async function processSriJob(jobId: string) {
     }
 
     const password = decryptSignaturePassword(settings.signaturePassword);
+    const p12Buffer = await readSignatureFileBuffer(settings.signatureFilePath);
 
     // Firmar el archivo XML generado
     await signXmlInvoice({
       xmlPath: xmlPath,
-      p12Path: settings.signatureFilePath,
+      p12Buffer,
       p12Password: password,
     });
 

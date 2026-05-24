@@ -14,6 +14,77 @@ export function failValidation(message: string): never {
   throw new AppValidationError(message);
 }
 
+export function assertSafeId(value: unknown, label = "identificador") {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]{1,120}$/.test(value)) {
+    failValidation(`El ${label} no es valido.`);
+  }
+  return value;
+}
+
+export function assertBooleanValue(value: unknown, label: string) {
+  if (typeof value !== "boolean") {
+    failValidation(`${label} debe ser verdadero o falso.`);
+  }
+  return value;
+}
+
+export function assertAllowedValue<T extends string>(
+  value: unknown,
+  allowedValues: readonly T[],
+  label: string,
+): T {
+  if (typeof value !== "string" || !allowedValues.includes(value as T)) {
+    failValidation(`${label} no es valido.`);
+  }
+  return value as T;
+}
+
+export function cleanText(value: unknown, label: string, max = 120, required = false) {
+  if (typeof value !== "string") {
+    failValidation(`${label} no es valido.`);
+  }
+
+  const cleaned = value
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (required && !cleaned) failValidation(`${label} es obligatorio.`);
+  if (cleaned.length > max) failValidation(`${label} no debe superar ${max} caracteres.`);
+
+  return cleaned;
+}
+
+export function cleanEmailHeader(value: unknown, label: string, max = 120) {
+  if (typeof value === "string" && /[\r\n]/.test(value)) {
+    failValidation(`${label} no puede contener saltos de linea.`);
+  }
+  return cleanText(value, label, max, true);
+}
+
+export function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+export function assertSafeLogoPath(value: unknown) {
+  const logoPath = cleanText(value, "La ruta del logo", 300, false);
+  if (!logoPath) return "";
+
+  const isLocal = /^\/[A-Za-z0-9/_-]+\.(png|jpg|jpeg|webp|svg)$/i.test(logoPath);
+  const isHttps = /^https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9/_?=&%.-]+$/i.test(logoPath);
+
+  if (!isLocal && !isHttps) {
+    failValidation("El logo debe ser una ruta local valida o una URL https.");
+  }
+
+  return logoPath;
+}
+
 export function onlyDigits(value: string) {
   return value.replace(/\D/g, "");
 }

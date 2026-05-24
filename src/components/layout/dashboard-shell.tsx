@@ -23,7 +23,7 @@ export function DashboardShell({ children, user }: DashboardShellProps) {
   const router = useRouter();
 
   useEffect(() => {
-    navigationItems.forEach((item) => router.prefetch(item.href));
+    navigationItems.forEach((item) => router.prefetch(item.href as never));
   }, [router]);
 
   return (
@@ -58,7 +58,7 @@ export function DashboardShell({ children, user }: DashboardShellProps) {
             return (
               <Link
                 key={item.href}
-                href={item.href}
+                href={item.href as never}
                 prefetch
                 className={cn(
                   "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-pink-50 hover:text-[var(--berry)]",
@@ -111,7 +111,7 @@ export function DashboardShell({ children, user }: DashboardShellProps) {
               return (
                 <Link
                   key={item.href}
-                  href={item.href}
+                  href={item.href as never}
                   prefetch
                   className={cn(
                     "inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600",

@@ -12,7 +12,8 @@ import forge from "node-forge";
 
 interface SignerConfig {
   xmlPath: string;
-  p12Path: string;
+  p12Path?: string;
+  p12Buffer?: Buffer;
   p12Password: string;
 }
 
@@ -55,6 +56,10 @@ function extractKeysFromP12(p12Buffer: Buffer, password: string) {
   }
 }
 
+export function assertReadableP12(p12Buffer: Buffer, password: string) {
+  extractKeysFromP12(p12Buffer, password);
+}
+
 /**
  * Formatea el nombre distintivo (DN) del emisor del certificado de forma estándar
  */
@@ -71,10 +76,13 @@ function formatIssuerDN(issuer: forge.pki.RDN) {
 /**
  * Firma digitalmente un archivo XML de factura con el formato XAdES-BES
  */
-export async function signXmlInvoice({ xmlPath, p12Path, p12Password }: SignerConfig): Promise<string> {
+export async function signXmlInvoice({ xmlPath, p12Path, p12Buffer: providedP12Buffer, p12Password }: SignerConfig): Promise<string> {
   // 1. Leer archivos
   const xmlContent = await fs.readFile(xmlPath, "utf8");
-  const p12Buffer = await fs.readFile(p12Path);
+  const p12Buffer = providedP12Buffer ?? (p12Path ? await fs.readFile(p12Path) : null);
+  if (!p12Buffer) {
+    throw new Error("No se encontro el archivo de firma electronica configurado.");
+  }
 
   // 2. Extraer claves de firma
   const { privateKeyPem, certificatePem, certificate } = extractKeysFromP12(p12Buffer, p12Password);

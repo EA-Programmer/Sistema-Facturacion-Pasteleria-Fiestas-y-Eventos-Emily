@@ -1,11 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { requireSameOriginRequest } from "@/lib/action-security";
 import { requireAdminSession } from "@/lib/auth";
 import { getPaymentRecords } from "@/lib/payments-db";
 import { prisma } from "@/lib/prisma";
-import { failValidation, roundMoney } from "@/lib/validation";
-import type { PaymentRecord, PaymentStatus } from "@/types/payment";
+import { assertAllowedValue, assertSafeId, cleanText, failValidation, roundMoney } from "@/lib/validation";
+import type { PaymentMethod, PaymentRecord, PaymentStatus, PaymentTargetType } from "@/types/payment";
+
+const paymentTargetTypes = ["ORDER", "INVOICE"] as const satisfies readonly PaymentTargetType[];
+const paymentMethods = ["EFECTIVO", "TRANSFERENCIA", "DEPOSITO", "TARJETA", "OTRO"] as const satisfies readonly PaymentMethod[];
+const paymentStatuses = ["PENDIENTE", "CONFIRMADO", "ANULADO"] as const satisfies readonly PaymentStatus[];
 
 function parsePaidAt(value: string) {
   if (!value) return new Date();
@@ -21,24 +26,32 @@ async function refreshPayments() {
 }
 
 export async function savePayment(payment: PaymentRecord) {
+  await requireSameOriginRequest();
   await requireAdminSession();
 
   const amount = roundMoney(Number(payment.amount));
+  const targetType = assertAllowedValue(payment.targetType, paymentTargetTypes, "El destino del pago");
+  const targetId = assertSafeId(payment.targetId, "identificador del destino del pago");
+  const paymentId = assertSafeId(payment.id, "identificador del pago");
+  const method = assertAllowedValue(payment.method, paymentMethods, "El metodo de pago");
+  const status = assertAllowedValue(payment.status, paymentStatuses, "El estado del pago");
+  const reference = cleanText(payment.reference, "La referencia del pago", 120);
+  const notes = cleanText(payment.notes, "Las notas del pago", 500);
   if (!Number.isFinite(amount) || amount <= 0) {
     failValidation("Ingresa un monto de pago mayor a cero.");
   }
 
-  let invoiceId = payment.targetType === "INVOICE" ? payment.targetId : null;
+  let invoiceId = targetType === "INVOICE" ? targetId : null;
   const orderId =
-    payment.targetType === "INVOICE"
+    targetType === "INVOICE"
       ? payment.orderId ||
         (
           await prisma.invoice.findUnique({
-            where: { id: payment.targetId },
+            where: { id: targetId },
             select: { orderId: true },
           })
         )?.orderId
-      : payment.targetId;
+      : targetId;
 
   if (!orderId) {
     failValidation("No se encontro el pedido asociado al pago.");
@@ -69,7 +82,7 @@ export async function savePayment(payment: PaymentRecord) {
         orderId,
         invoiceId,
         status: "CONFIRMADO",
-        id: { not: payment.id },
+        id: { not: paymentId },
       },
       select: { amount: true },
     }),
@@ -88,26 +101,26 @@ export async function savePayment(payment: PaymentRecord) {
   }
 
   await prisma.payment.upsert({
-    where: { id: payment.id },
+    where: { id: paymentId },
     update: {
       orderId,
       invoiceId,
-      method: payment.method,
-      status: payment.status,
+      method,
+      status,
       amount,
-      reference: payment.reference.trim() || null,
-      notes: payment.notes.trim() || null,
+      reference: reference || null,
+      notes: notes || null,
       paidAt: parsePaidAt(payment.paidAt),
     },
     create: {
-      id: payment.id,
+      id: paymentId,
       orderId,
       invoiceId,
-      method: payment.method,
-      status: payment.status,
+      method,
+      status,
       amount,
-      reference: payment.reference.trim() || null,
-      notes: payment.notes.trim() || null,
+      reference: reference || null,
+      notes: notes || null,
       paidAt: parsePaidAt(payment.paidAt),
     },
   });
@@ -116,18 +129,23 @@ export async function savePayment(payment: PaymentRecord) {
 }
 
 export async function deletePayment(id: string) {
+  await requireSameOriginRequest();
   await requireAdminSession();
+  const paymentId = assertSafeId(id, "identificador del pago");
 
-  await prisma.payment.delete({ where: { id } }).catch(() => null);
+  await prisma.payment.delete({ where: { id: paymentId } }).catch(() => null);
   return refreshPayments();
 }
 
 export async function updatePaymentStatus(id: string, status: PaymentStatus) {
+  await requireSameOriginRequest();
   await requireAdminSession();
+  const paymentId = assertSafeId(id, "identificador del pago");
+  const nextStatus = assertAllowedValue(status, paymentStatuses, "El estado del pago");
 
   await prisma.payment.update({
-    where: { id },
-    data: { status },
+    where: { id: paymentId },
+    data: { status: nextStatus },
   });
 
   return refreshPayments();

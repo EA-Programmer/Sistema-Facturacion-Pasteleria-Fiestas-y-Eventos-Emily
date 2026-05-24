@@ -1,10 +1,12 @@
 import { randomBytes, scryptSync, createCipheriv, createDecipheriv } from "crypto";
-import { mkdir, unlink, writeFile } from "fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "fs/promises";
 import path from "path";
+import { assertReadableP12 } from "@/lib/sri-signer";
 
 const storageRoot = path.join(process.cwd(), "storage", "sri", "signatures");
 const allowedExtensions = new Set([".p12", ".pfx"]);
 const maxSignatureSize = 5 * 1024 * 1024;
+const encryptedFileMagic = Buffer.from("EMILYSRI1");
 
 function encryptionSecret() {
   const secret = process.env.SIGNATURE_ENCRYPTION_SECRET || process.env.AUTH_SECRET;
@@ -41,6 +43,32 @@ export function decryptSignaturePassword(payload: string) {
   ]).toString("utf8");
 }
 
+function encryptSignatureFileBuffer(buffer: Buffer) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", encryptionKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(buffer), cipher.final()]);
+  const tag = cipher.getAuthTag();
+
+  return Buffer.concat([encryptedFileMagic, iv, tag, encrypted]);
+}
+
+function decryptSignatureFileBuffer(buffer: Buffer) {
+  if (!buffer.subarray(0, encryptedFileMagic.length).equals(encryptedFileMagic)) {
+    return buffer;
+  }
+
+  const ivStart = encryptedFileMagic.length;
+  const tagStart = ivStart + 12;
+  const encryptedStart = tagStart + 16;
+  const iv = buffer.subarray(ivStart, tagStart);
+  const tag = buffer.subarray(tagStart, encryptedStart);
+  const encrypted = buffer.subarray(encryptedStart);
+
+  const decipher = createDecipheriv("aes-256-gcm", encryptionKey(), iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+}
+
 export function validateSignatureFile(file: File) {
   const extension = path.extname(file.name).toLowerCase();
   if (!allowedExtensions.has(extension)) {
@@ -54,16 +82,18 @@ export function validateSignatureFile(file: File) {
   }
 }
 
-export async function saveSignatureFile(file: File, ruc: string) {
+export async function saveSignatureFile(file: File, ruc: string, password: string) {
   validateSignatureFile(file);
   await mkdir(storageRoot, { recursive: true });
 
   const extension = path.extname(file.name).toLowerCase();
   const safeRuc = ruc.replace(/\D/g, "") || "empresa";
-  const storedName = `${safeRuc}-${Date.now()}-${randomBytes(6).toString("hex")}${extension}`;
+  const storedName = `${safeRuc}-${Date.now()}-${randomBytes(6).toString("hex")}${extension}.enc`;
   const absolutePath = path.join(storageRoot, storedName);
+  const fileBuffer = Buffer.from(await file.arrayBuffer());
 
-  await writeFile(absolutePath, Buffer.from(await file.arrayBuffer()), { mode: 0o600 });
+  assertReadableP12(fileBuffer, password);
+  await writeFile(absolutePath, encryptSignatureFileBuffer(fileBuffer), { mode: 0o600 });
 
   return {
     originalName: file.name,
@@ -71,12 +101,24 @@ export async function saveSignatureFile(file: File, ruc: string) {
   };
 }
 
+export async function readSignatureFileBuffer(filePath: string) {
+  const resolvedRoot = path.resolve(storageRoot);
+  const resolvedPath = path.resolve(filePath);
+  const relativePath = path.relative(resolvedRoot, resolvedPath);
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    throw new Error("La ruta de la firma electronica no es valida.");
+  }
+
+  return decryptSignatureFileBuffer(await readFile(resolvedPath));
+}
+
 export async function removeSignatureFile(filePath?: string | null) {
   if (!filePath) return;
 
   const resolvedRoot = path.resolve(storageRoot);
   const resolvedPath = path.resolve(filePath);
-  if (!resolvedPath.startsWith(resolvedRoot)) return;
+  const relativePath = path.relative(resolvedRoot, resolvedPath);
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) return;
 
   try {
     await unlink(resolvedPath);
@@ -84,4 +126,3 @@ export async function removeSignatureFile(filePath?: string | null) {
     // If the file was already removed, the database cleanup can still continue.
   }
 }
-

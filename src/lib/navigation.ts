@@ -1,6 +1,7 @@
 import {
   BarChart3,
   CakeSlice,
+  ClipboardList,
   CreditCard,
   FileText,
   LayoutDashboard,
@@ -34,6 +35,11 @@ export const navigationItems = [
     label: "Facturas",
     href: "/facturas",
     icon: FileText,
+  },
+  {
+    label: "Proformas",
+    href: "/proformas",
+    icon: ClipboardList,
   },
   {
     label: "Pagos",

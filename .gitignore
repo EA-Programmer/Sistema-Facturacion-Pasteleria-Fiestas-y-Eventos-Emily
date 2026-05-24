@@ -6,7 +6,17 @@ storage
 dist
 coverage
 dev.log
+*.log
+*.err
 .env
 .env*.local
 *.tsbuildinfo
 prisma/dev.db
+*.dump
+*.sql
+*.p12
+*.pfx
+copia_local.*
+dev*.log
+dev-security.*
+PASTELERIA
