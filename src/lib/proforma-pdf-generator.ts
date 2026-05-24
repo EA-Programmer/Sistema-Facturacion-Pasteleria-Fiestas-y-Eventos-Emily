@@ -1,7 +1,6 @@
 import { existsSync } from "fs";
 import path from "path";
 import PDFDocument from "pdfkit";
-import QRCode from "qrcode";
 import type { Proforma } from "@/types/proforma";
 import type { BusinessSettingsForm } from "@/types/settings";
 
@@ -18,30 +17,6 @@ function formatDate(value: string | Date | null | undefined) {
 
 function money(value: number) {
   return `$ ${Number(value || 0).toFixed(2)}`;
-}
-
-function buildVerificationUrl(proforma: Proforma) {
-  const publicUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_DOMAIN || "";
-  const baseUrl = publicUrl
-    ? publicUrl.replace(/^https?:\/\//, "").replace(/\/$/, "")
-    : "";
-
-  if (!baseUrl) return "";
-  return `https://${baseUrl}/verificar/proforma/${encodeURIComponent(proforma.id)}`;
-}
-
-function buildQrPayload(proforma: Proforma, settings: BusinessSettingsForm) {
-  const verificationUrl = buildVerificationUrl(proforma);
-  return [
-    `Proforma: ${proforma.number}`,
-    `Empresa: ${settings.tradeName || settings.businessName}`,
-    `RUC: ${settings.ruc || "Pendiente"}`,
-    `Cliente: ${proforma.customerName}`,
-    `Documento: ${proforma.customerDocument.slice(0, 3)}****${proforma.customerDocument.slice(-3)}`,
-    `Fecha: ${formatDate(proforma.issueDate)}`,
-    `Total: ${money(proforma.total)}`,
-    verificationUrl ? `Verificacion: ${verificationUrl}` : "Verificacion: codigo interno generado por el sistema",
-  ].join("\n");
 }
 
 function line(doc: PDFKit.PDFDocument, y: number) {
