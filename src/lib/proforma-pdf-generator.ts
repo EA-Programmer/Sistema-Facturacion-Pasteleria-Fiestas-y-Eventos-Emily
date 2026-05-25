@@ -1,6 +1,7 @@
 import { existsSync } from "fs";
 import path from "path";
 import PDFDocument from "pdfkit";
+import QRCode from "qrcode";
 import type { Proforma } from "@/types/proforma";
 import type { BusinessSettingsForm } from "@/types/settings";
 
@@ -19,6 +20,32 @@ function money(value: number) {
   return `$ ${Number(value || 0).toFixed(2)}`;
 }
 
+function buildVerificationUrl(proforma: Proforma) {
+  const publicUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_DOMAIN || "";
+  const baseUrl = publicUrl
+    ? publicUrl.replace(/^https?:\/\//, "").replace(/\/$/, "")
+    : "";
+
+  if (!baseUrl) return "";
+  return `https://${baseUrl}/verificar/proforma/${encodeURIComponent(proforma.id)}`;
+}
+
+function buildQrPayload(proforma: Proforma, settings: BusinessSettingsForm) {
+  const verificationUrl = buildVerificationUrl(proforma);
+  const document = proforma.customerDocument;
+
+  return [
+    `Proforma: ${proforma.number}`,
+    `Empresa: ${settings.tradeName || settings.businessName}`,
+    `RUC: ${settings.ruc || "Pendiente"}`,
+    `Cliente: ${proforma.customerName}`,
+    `Documento: ${document.length > 6 ? `${document.slice(0, 3)}****${document.slice(-3)}` : "Registrado"}`,
+    `Fecha: ${formatDate(proforma.issueDate)}`,
+    `Total: ${money(proforma.total)}`,
+    verificationUrl ? `Verificacion: ${verificationUrl}` : "Verificacion: codigo interno generado por el sistema",
+  ].join("\n");
+}
+
 function line(doc: PDFKit.PDFDocument, y: number) {
   doc.moveTo(40, y).lineTo(555, y).lineWidth(0.5).strokeColor("#e2e8f0").stroke();
 }
@@ -27,7 +54,7 @@ export function generateProformaPdfBuffer(
   proforma: Proforma,
   settings: BusinessSettingsForm,
 ): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     try {
       const regularFontPath = path.join(process.cwd(), "public", "fonts", "Roboto-Regular.ttf");
       const boldFontPath = path.join(process.cwd(), "public", "fonts", "Roboto-Bold.ttf");
@@ -140,13 +167,27 @@ export function generateProformaPdfBuffer(
         });
 
       const signatureY = 755;
+      const qrBuffer = await QRCode.toBuffer(buildQrPayload(proforma, settings), {
+        errorCorrectionLevel: "M",
+        margin: 1,
+        scale: 5,
+        type: "png",
+      });
 
-      doc.moveTo(70, signatureY + 22).lineTo(235, signatureY + 22).lineWidth(0.7).strokeColor("#94a3b8").stroke();
+      doc.image(qrBuffer, 42, signatureY - 8, { fit: [76, 76] });
       doc.fillColor(chocolate).font("Helvetica-Bold").fontSize(8)
-        .text(settings.tradeName || settings.businessName, 70, signatureY + 30, { width: 165, align: "center" });
+        .text("Codigo QR de verificacion", 128, signatureY - 2, { width: 150 });
+      doc.fillColor("#64748b").font("Helvetica").fontSize(7.2)
+        .text("Escanea para revisar los datos principales y el codigo interno de esta proforma.", 128, signatureY + 12, {
+          width: 170,
+          lineGap: 1.5,
+        });
 
+      doc.moveTo(340, signatureY + 22).lineTo(525, signatureY + 22).lineWidth(0.7).strokeColor("#94a3b8").stroke();
+      doc.fillColor(chocolate).font("Helvetica-Bold").fontSize(8)
+        .text("Firma autorizada", 340, signatureY + 30, { width: 185, align: "center" });
       doc.fillColor("#64748b").font("Helvetica").fontSize(7.5)
-        .text("Proforma generada digitalmente. No es comprobante tributario autorizado por el SRI.", 300, signatureY + 26, {
+        .text("Proforma generada digitalmente. No es comprobante tributario autorizado por el SRI.", 300, signatureY + 52, {
           width: 245,
           align: "right",
         });

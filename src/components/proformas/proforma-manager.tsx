@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useMemo, useState, useTransition } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import {
   Download,
   FileText,
@@ -99,7 +99,7 @@ export function ProformaManager({
     theme: "",
     dedication: "",
   });
-  const [isPending, startTransition] = useTransition();
+  const [isPending, setIsPending] = useState(false);
   const deferredQuery = useDeferredValue(query);
 
   const activeCustomers = useMemo(() => customers.filter((customer) => customer.active), [customers]);
@@ -320,7 +320,7 @@ export function ProformaManager({
     return "";
   }
 
-  function saveProforma() {
+  async function saveProforma() {
     const error = validationMessage();
     if (error) {
       setMessage({ type: "error", text: error });
@@ -354,49 +354,52 @@ export function ProformaManager({
       createdAt: existing?.createdAt ?? new Date().toISOString(),
     };
 
-    startTransition(async () => {
-      try {
-        const saved = await saveProformaAction(payload);
-        setProformas(saved);
-        clearForm();
-        setMessage({ type: "success", text: "Proforma guardada correctamente." });
-      } catch (saveError) {
-        setMessage({
-          type: "error",
-          text: saveError instanceof Error ? saveError.message : "No se pudo guardar la proforma.",
-        });
-      }
-    });
+    setIsPending(true);
+    try {
+      const saved = await saveProformaAction(payload);
+      setProformas(saved);
+      clearForm();
+      setMessage({ type: "success", text: "Proforma guardada correctamente." });
+    } catch (saveError) {
+      setMessage({
+        type: "error",
+        text: saveError instanceof Error ? saveError.message : "No se pudo guardar la proforma.",
+      });
+    } finally {
+      setIsPending(false);
+    }
   }
 
-  function removeProforma(id: string) {
-    startTransition(async () => {
-      try {
-        const saved = await deleteProforma(id);
-        setProformas(saved);
-        setMessage({ type: "success", text: "Proforma eliminada." });
-      } catch (deleteError) {
-        setMessage({
-          type: "error",
-          text: deleteError instanceof Error ? deleteError.message : "No se pudo eliminar la proforma.",
-        });
-      }
-    });
+  async function removeProforma(id: string) {
+    setIsPending(true);
+    try {
+      const saved = await deleteProforma(id);
+      setProformas(saved);
+      setMessage({ type: "success", text: "Proforma eliminada." });
+    } catch (deleteError) {
+      setMessage({
+        type: "error",
+        text: deleteError instanceof Error ? deleteError.message : "No se pudo eliminar la proforma.",
+      });
+    } finally {
+      setIsPending(false);
+    }
   }
 
-  function updateStatus(id: string, status: ProformaStatus) {
-    startTransition(async () => {
-      try {
-        const saved = await updateProformaStatusAction(id, status);
-        setProformas(saved);
-        setMessage({ type: "success", text: "Estado de proforma actualizado." });
-      } catch (statusError) {
-        setMessage({
-          type: "error",
-          text: statusError instanceof Error ? statusError.message : "No se pudo actualizar el estado.",
-        });
-      }
-    });
+  async function updateStatus(id: string, status: ProformaStatus) {
+    setIsPending(true);
+    try {
+      const saved = await updateProformaStatusAction(id, status);
+      setProformas(saved);
+      setMessage({ type: "success", text: "Estado de proforma actualizado." });
+    } catch (statusError) {
+      setMessage({
+        type: "error",
+        text: statusError instanceof Error ? statusError.message : "No se pudo actualizar el estado.",
+      });
+    } finally {
+      setIsPending(false);
+    }
   }
 
   const accepted = proformas.filter((item) => item.status === "ACEPTADA").length;
