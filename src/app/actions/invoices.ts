@@ -15,6 +15,7 @@ import { generateInvoicePdfBuffer } from "@/lib/pdf-generator";
 import { generateInvoiceHtmlEmail } from "@/lib/email-templates";
 import { sendEmail } from "@/lib/email-sender";
 import {
+  AppValidationError,
   assertAllowedValue,
   assertSafeId,
   cleanEmailHeader,
@@ -51,6 +52,12 @@ async function refreshInvoices() {
   revalidatePath("/reportes");
   revalidatePath("/");
   return getInternalInvoices();
+}
+
+function toActionMessage(error: unknown, fallback: string) {
+  if (error instanceof AppValidationError) return error.message;
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
 }
 
 async function createInvoiceNumber() {
@@ -274,7 +281,7 @@ export async function recordInvoiceEmail(log: InvoiceEmailLog) {
 
   const html = generateInvoiceHtmlEmail(fullInvoice, normalizedSettings);
   let emailStatus: "ENVIADO" | "ERROR" = "ENVIADO";
-  const fromAddress = normalizedSettings.emailFromAddress || normalizedSettings.email || "noreply@smartmenucloud.com";
+  const fromAddress = normalizedSettings.emailFromAddress || process.env.EMAIL_FROM || normalizedSettings.email || "noreply@smartmenucloud.com";
   const fromName = cleanEmailHeader(normalizedSettings.emailFromName || normalizedSettings.businessName, "El remitente", 120);
   if (!isValidEmail(fromAddress)) failValidation("Configura un correo remitente valido antes de enviar facturas.");
 
@@ -384,25 +391,58 @@ export async function emitInvoiceToSri(id: string) {
   await requireAdminSession();
   const invoiceId = assertSafeId(id, "identificador de la factura");
 
-  const job = await enqueueSriJob(invoiceId);
-  await processSriJob(job.id);
+  let message = "Factura enviada a la cola SRI. Revisa el estado electronico.";
+  let ok = true;
+
+  try {
+    const job = await enqueueSriJob(invoiceId);
+    const processedJob = await processSriJob(job.id);
+    if (processedJob.status === "ERROR") {
+      ok = false;
+      message = processedJob.lastError || "No se pudo completar el proceso SRI. Revisa la configuracion.";
+    }
+  } catch (error) {
+    ok = false;
+    message = toActionMessage(error, "No se pudo procesar la factura en la cola SRI.");
+    console.error("Error al emitir factura al SRI:", error);
+  }
 
   revalidatePath("/facturas");
   revalidatePath("/reportes");
   revalidatePath("/");
 
-  return refreshInvoices();
+  return {
+    invoices: await refreshInvoices(),
+    message,
+    ok,
+  };
 }
 
 export async function retrySriQueue() {
   await requireSameOriginRequest();
   await requireAdminSession();
 
-  await retryDueSriJobs();
+  let message = "Cola SRI revisada. Los pendientes fueron reintentados.";
+  let ok = true;
+
+  try {
+    const processed = await retryDueSriJobs();
+    if (processed === 0) {
+      message = "No hay facturas pendientes listas para reintentar en este momento.";
+    }
+  } catch (error) {
+    ok = false;
+    message = toActionMessage(error, "No se pudo reintentar la cola SRI.");
+    console.error("Error al reintentar cola SRI:", error);
+  }
 
   revalidatePath("/facturas");
   revalidatePath("/reportes");
   revalidatePath("/");
 
-  return refreshInvoices();
+  return {
+    invoices: await refreshInvoices(),
+    message,
+    ok,
+  };
 }

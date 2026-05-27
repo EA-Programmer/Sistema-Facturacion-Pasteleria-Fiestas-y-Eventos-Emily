@@ -52,7 +52,14 @@ function statusVariant(status: InternalInvoiceStatus) {
 }
 
 function errorText(error: unknown) {
-  return error instanceof Error ? error.message : "No se pudo completar la accion. Revisa los datos.";
+  if (error instanceof Error) {
+    if (error.message.includes("Server Components render") || error.message.includes("digest")) {
+      return "No se pudo completar la accion en el servidor. Revisa la configuracion y vuelve a intentar.";
+    }
+    return error.message;
+  }
+
+  return "No se pudo completar la accion. Revisa los datos.";
 }
 
 export function InvoiceManager({
@@ -166,8 +173,8 @@ export function InvoiceManager({
     startTransition(async () => {
       try {
         const savedInvoices = await emitInvoiceToSri(id);
-        setInvoices(savedInvoices);
-        setMessage({ type: "success", text: "Factura enviada a la cola SRI. Revisa el estado electronico." });
+        setInvoices(savedInvoices.invoices);
+        setMessage({ type: savedInvoices.ok ? "success" : "error", text: savedInvoices.message });
       } catch (error) {
         setMessage({ type: "error", text: errorText(error) });
       }
@@ -178,8 +185,8 @@ export function InvoiceManager({
     startTransition(async () => {
       try {
         const savedInvoices = await retrySriQueue();
-        setInvoices(savedInvoices);
-        setMessage({ type: "success", text: "Cola SRI revisada. Los pendientes fueron reintentados." });
+        setInvoices(savedInvoices.invoices);
+        setMessage({ type: savedInvoices.ok ? "success" : "error", text: savedInvoices.message });
       } catch (error) {
         setMessage({ type: "error", text: errorText(error) });
       }

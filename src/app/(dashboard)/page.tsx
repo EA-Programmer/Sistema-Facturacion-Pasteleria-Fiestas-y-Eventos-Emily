@@ -146,7 +146,16 @@ export default async function DashboardPage() {
   ];
 
   // Verify checklist items
-  const smtpConfigured = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER);
+  const smtpConfigured = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+  const resendConfigured = Boolean(process.env.RESEND_API_KEY);
+  const senderConfigured = Boolean(settings.emailFromAddress || process.env.EMAIL_FROM || settings.email);
+  const emailConfigured = (smtpConfigured || resendConfigured) && senderConfigured;
+  const emailProvider = resendConfigured ? "Resend listo" : smtpConfigured ? "SMTP listo" : "Remitente pendiente";
+  const emailDetail = resendConfigured
+    ? (settings.emailFromAddress || process.env.EMAIL_FROM || settings.email || "Remitente configurado")
+    : smtpConfigured
+      ? process.env.SMTP_USER
+      : "Configura Resend o SMTP";
   const signatureConfigured = settings.hasSignature;
   const isSignatureExpired = settings.signatureExpiresAt ? new Date(settings.signatureExpiresAt) < new Date() : false;
   const rucConfigured = /^\d{13}$/.test(settings.ruc) && settings.ruc !== "PENDIENTE";
@@ -243,13 +252,13 @@ export default async function DashboardPage() {
             <p className="mt-1 text-xs text-slate-500">Prisma & PostgreSQL</p>
           </div>
 
-          {/* Check SMTP Email */}
+          {/* Check Email Delivery */}
           <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-4">
             <div className="flex items-center justify-between">
               <span className="rounded-md bg-pink-50 p-1.5 text-[var(--berry)]">
                 <Mail className="size-4" />
               </span>
-              {smtpConfigured ? (
+              {emailConfigured ? (
                 <CheckCircle2 className="size-4 text-emerald-600" />
               ) : (
                 <AlertCircle className="size-4 text-amber-600" />
@@ -257,10 +266,10 @@ export default async function DashboardPage() {
             </div>
             <p className="mt-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Servicio Correo</p>
             <p className="mt-1 text-sm font-bold text-slate-900 truncate">
-              {smtpConfigured ? "Gmail SMTP listo" : "Sin Configurar"}
+              {emailConfigured ? emailProvider : "Sin configurar"}
             </p>
-            <p className="mt-1 text-xs text-slate-500 truncate" title={smtpConfigured ? process.env.SMTP_USER : "Configura SMTP en .env"}>
-              {smtpConfigured ? process.env.SMTP_USER : "Sin credenciales"}
+            <p className="mt-1 text-xs text-slate-500 truncate" title={emailDetail}>
+              {emailConfigured ? emailDetail : "Sin credenciales"}
             </p>
           </div>
 
