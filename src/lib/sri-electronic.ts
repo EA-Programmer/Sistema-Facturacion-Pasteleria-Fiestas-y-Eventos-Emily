@@ -47,7 +47,21 @@ export async function enqueueSriJob(invoiceId: string) {
     orderBy: { createdAt: "desc" },
   });
 
-  if (existingJob) return existingJob;
+  if (existingJob) {
+    if (existingJob.status === "ERROR" && existingJob.attempts >= maxAttempts) {
+      return prisma.sriJob.update({
+        where: { id: existingJob.id },
+        data: {
+          attempts: 0,
+          lastError: null,
+          nextRunAt: new Date(),
+          status: "PENDIENTE",
+        },
+      });
+    }
+
+    return existingJob;
+  }
 
   return prisma.sriJob.create({
     data: {
@@ -96,6 +110,10 @@ export async function processSriJob(jobId: string) {
       throw new Error("Configura los datos de la empresa antes de generar XML SRI.");
     }
 
+    if (!settings.sriEnabled) {
+      throw new Error("Activa la integracion SRI en Configuracion antes de generar XML.");
+    }
+
     const { accessKey, xml } = buildSriInvoiceXml(invoice, settings);
     const xmlPath = await writeSriXml(invoice.number, xml);
 
@@ -108,12 +126,20 @@ export async function processSriJob(jobId: string) {
       },
     });
 
-    if (!settings.sriEnabled) {
-      throw new Error("Activa la integracion SRI en Configuracion antes de transmitir.");
+    if (settings.sriEnvironment !== "PRODUCCION") {
+      return prisma.sriJob.update({
+        where: { id: job.id },
+        data: {
+          status: "COMPLETADO",
+          completedAt: new Date(),
+          lockedAt: null,
+          lastError: null,
+        },
+      });
     }
 
     if (!settings.signatureFilePath || !settings.signaturePassword) {
-      throw new Error("Registra el archivo de firma electronica antes de firmar el XML.");
+      throw new Error("Registra el archivo de firma electronica en este servidor antes de firmar en produccion.");
     }
 
     if (!settings.signatureExpiresAt || settings.signatureExpiresAt <= new Date()) {

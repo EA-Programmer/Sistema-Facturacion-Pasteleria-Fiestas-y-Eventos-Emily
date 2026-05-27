@@ -4,7 +4,9 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import {
   Building2,
   FileText,
+  Lock,
   Mail,
+  Pencil,
   RotateCcw,
   Save,
   ShieldCheck,
@@ -32,6 +34,7 @@ export function SettingsManager({
   initialSettings: BusinessSettingsForm;
 }) {
   const [settings, setSettings] = useState<BusinessSettingsForm>(initialSettings);
+  const [protectedEditEnabled, setProtectedEditEnabled] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState<{ type: "error" | "success"; text: string } | null>(null);
   const signatureFormRef = useRef<HTMLFormElement>(null);
@@ -41,6 +44,12 @@ export function SettingsManager({
       `${settings.establishmentCode || "001"}-${settings.emissionPointCode || "001"}-${formatSequence(settings.invoiceSequence)}`,
     [settings.emissionPointCode, settings.establishmentCode, settings.invoiceSequence],
   );
+  const isProduction = settings.sriEnvironment === "PRODUCCION";
+  const hasProtectedConfig = settings.sriEnabled || settings.hasSignature;
+  const protectedLocked = hasProtectedConfig && !protectedEditEnabled;
+  const canEnableProtectedEdit = !isProduction;
+  const criticalFieldsDisabled = isPending || (protectedLocked && isProduction);
+  const signatureFieldsDisabled = isPending || protectedLocked;
 
   function setField<K extends keyof BusinessSettingsForm>(
     key: K,
@@ -140,7 +149,7 @@ export function SettingsManager({
               <div>
                 <h3 className="text-base font-bold text-cyan-950">MODO DE PRUEBAS SRI ACTIVO</h3>
                 <p className="mt-1 text-sm leading-relaxed text-cyan-800">
-                  El sistema está en <strong>ambiente de pruebas/simulación</strong>. Las facturas emitidas se firmarán y enviarán al SRI de pruebas, lo que te permite validar el flujo sin generar obligaciones tributarias o de pago de impuestos. Es ideal para capacitación y pruebas de facturación.
+                  El sistema está en <strong>ambiente de pruebas/simulación</strong>. Las facturas pueden generar XML local para revisar el flujo, pero no se transmiten al SRI real ni usan la firma electrónica para emitir comprobantes legales.
                 </p>
               </div>
             </div>
@@ -169,6 +178,38 @@ export function SettingsManager({
         <SummaryCard label="IVA" value={`${settings.taxRate || 0}%`} />
       </section>
 
+      {hasProtectedConfig ? (
+        <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-start gap-3">
+              <span className="rounded-lg bg-white p-2 text-emerald-700">
+                <Lock aria-hidden className="size-5" />
+              </span>
+              <div>
+                <h2 className="font-bold text-emerald-950">Configuracion electronica protegida</h2>
+                <p className="mt-1 text-sm leading-6 text-emerald-800">
+                  La firma y los datos tributarios ya estan registrados. Para evitar cambios accidentales, la edicion queda bloqueada y solo puede habilitarse en ambiente de pruebas.
+                </p>
+              </div>
+            </div>
+            <Button
+              disabled={!canEnableProtectedEdit || isPending}
+              onClick={() => setProtectedEditEnabled((current) => !current)}
+              type="button"
+              variant="secondary"
+            >
+              {protectedEditEnabled ? <Lock aria-hidden className="size-4" /> : <Pencil aria-hidden className="size-4" />}
+              {protectedEditEnabled ? "Bloquear edicion" : "Habilitar edicion"}
+            </Button>
+          </div>
+          {!canEnableProtectedEdit ? (
+            <p className="mt-3 text-sm font-semibold text-red-700">
+              La edicion esta deshabilitada en produccion. Cambia a pruebas para reemplazar firma o modificar datos criticos.
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
       <section className="grid gap-5 xl:grid-cols-[1fr_360px]">
         <div className="space-y-5">
           <SettingsCard
@@ -191,6 +232,7 @@ export function SettingsManager({
                 value={settings.tradeName}
               />
               <TextField
+                disabled={criticalFieldsDisabled}
                 label="RUC"
                 onChange={(value) => setField("ruc", value)}
                 placeholder="Ingrese RUC"
@@ -244,6 +286,7 @@ export function SettingsManager({
           >
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <TextField
+                disabled={criticalFieldsDisabled}
                 label="Establecimiento"
                 maxLength={3}
                 onChange={(value) => setField("establishmentCode", value)}
@@ -251,6 +294,7 @@ export function SettingsManager({
                 value={settings.establishmentCode}
               />
               <TextField
+                disabled={criticalFieldsDisabled}
                 label="Punto de emision"
                 maxLength={3}
                 onChange={(value) => setField("emissionPointCode", value)}
@@ -258,12 +302,14 @@ export function SettingsManager({
                 value={settings.emissionPointCode}
               />
               <NumberField
+                disabled={criticalFieldsDisabled}
                 label="Secuencial siguiente"
                 min={1}
                 onChange={(value) => setField("invoiceSequence", value)}
                 value={settings.invoiceSequence}
               />
               <NumberField
+                disabled={criticalFieldsDisabled}
                 label="IVA (%)"
                 min={0}
                 onChange={(value) => setField("taxRate", value)}
@@ -315,7 +361,8 @@ export function SettingsManager({
               <label className="block">
                 <span className="text-sm font-semibold text-slate-700">Ambiente</span>
                 <select
-                  className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)]"
+                  className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)] disabled:bg-slate-100 disabled:text-slate-500"
+                  disabled={isPending}
                   onChange={(event) =>
                     setField("sriEnvironment", event.target.value as "PRUEBAS" | "PRODUCCION")
                   }
@@ -327,6 +374,7 @@ export function SettingsManager({
               </label>
 
               <TextField
+                disabled={signatureFieldsDisabled}
                 label="Vencimiento firma electronica"
                 onChange={(value) => setField("signatureExpiresAt", value)}
                 type="date"
@@ -338,6 +386,7 @@ export function SettingsManager({
               <input
                 checked={settings.sriEnabled}
                 className="size-4 accent-[var(--berry)]"
+                disabled={signatureFieldsDisabled}
                 onChange={(event) => setField("sriEnabled", event.target.checked)}
                 type="checkbox"
               />
@@ -379,7 +428,8 @@ export function SettingsManager({
                   <span className="text-sm font-semibold text-slate-700">Archivo de firma</span>
                   <input
                     accept=".p12,.pfx"
-                    className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-pink-50 file:px-3 file:py-1.5 file:font-semibold file:text-[var(--berry)]"
+                    className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-pink-50 file:px-3 file:py-1.5 file:font-semibold file:text-[var(--berry)] disabled:bg-slate-100 disabled:text-slate-500"
+                    disabled={signatureFieldsDisabled}
                     name="signatureFile"
                     type="file"
                   />
@@ -389,7 +439,8 @@ export function SettingsManager({
                   <span className="text-sm font-semibold text-slate-700">Clave</span>
                   <input
                     autoComplete="new-password"
-                    className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)]"
+                    className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)] disabled:bg-slate-100 disabled:text-slate-500"
+                    disabled={signatureFieldsDisabled}
                     name="signaturePassword"
                     placeholder="Clave de firma"
                     type="password"
@@ -399,20 +450,21 @@ export function SettingsManager({
                 <label className="block">
                   <span className="text-sm font-semibold text-slate-700">Vencimiento</span>
                   <input
-                    className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)]"
+                    className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)] disabled:bg-slate-100 disabled:text-slate-500"
                     defaultValue={settings.signatureExpiresAt}
+                    disabled={signatureFieldsDisabled}
                     name="signatureExpiresAt"
                     type="date"
                   />
                 </label>
 
                 <div className="flex items-end gap-2">
-                  <Button disabled={isPending} type="submit">
+                  <Button disabled={signatureFieldsDisabled} type="submit">
                     <Upload aria-hidden className="size-4" />
                     Registrar
                   </Button>
                   {settings.hasSignature ? (
-                    <Button disabled={isPending} onClick={deleteSignature} type="button" variant="secondary">
+                    <Button disabled={signatureFieldsDisabled} onClick={deleteSignature} type="button" variant="secondary">
                       <Trash2 aria-hidden className="size-4" />
                     </Button>
                   ) : null}
@@ -535,6 +587,7 @@ function TextField({
   type = "text",
   className,
   maxLength,
+  disabled,
 }: {
   label: string;
   value: string;
@@ -543,12 +596,14 @@ function TextField({
   type?: string;
   className?: string;
   maxLength?: number;
+  disabled?: boolean;
 }) {
   return (
     <label className={className ? `block ${className}` : "block"}>
       <span className="text-sm font-semibold text-slate-700">{label}</span>
       <input
-        className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)]"
+        className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)] disabled:bg-slate-100 disabled:text-slate-500"
+        disabled={disabled}
         maxLength={maxLength}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
@@ -565,18 +620,21 @@ function NumberField({
   onChange,
   min,
   step = "1",
+  disabled,
 }: {
   label: string;
   value: number;
   onChange: (value: number) => void;
   min?: number;
   step?: string;
+  disabled?: boolean;
 }) {
   return (
     <label className="block">
       <span className="text-sm font-semibold text-slate-700">{label}</span>
       <input
-        className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)]"
+        className="mt-2 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--berry)] disabled:bg-slate-100 disabled:text-slate-500"
+        disabled={disabled}
         min={min}
         onChange={(event) => onChange(Number(event.target.value))}
         step={step}

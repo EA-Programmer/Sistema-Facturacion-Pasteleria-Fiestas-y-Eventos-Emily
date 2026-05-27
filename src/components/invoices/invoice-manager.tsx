@@ -51,6 +51,29 @@ function statusVariant(status: InternalInvoiceStatus) {
   return "amber";
 }
 
+function sriStatusText(invoice: InternalInvoice, settings: BusinessSettingsForm) {
+  if (invoice.status === "AUTORIZADA") return "Autorizada SRI";
+  if (invoice.status === "ENVIADA_SRI" || invoice.status === "RECIBIDA") return "Enviada SRI";
+  if (invoice.status === "FIRMADA") return "Firmada";
+  if (invoice.hasSriXml) {
+    return settings.sriEnvironment === "PRUEBAS" ? "XML de prueba local" : "XML generado";
+  }
+  if (invoice.sriJob?.status === "ERROR") return "Revisar configuracion";
+  return "Pendiente";
+}
+
+function sriHelpText(settings: BusinessSettingsForm) {
+  if (!settings.sriEnabled) {
+    return "La integracion SRI esta desactivada. Las facturas quedan como control interno.";
+  }
+
+  if (settings.sriEnvironment === "PRUEBAS") {
+    return "Ambiente de pruebas: genera XML local de simulacion. No transmite al SRI real ni usa la firma electronica.";
+  }
+
+  return "Ambiente de produccion: requiere firma valida en este servidor antes de firmar comprobantes reales.";
+}
+
 function errorText(error: unknown) {
   if (error instanceof Error) {
     if (error.message.includes("Server Components render") || error.message.includes("digest")) {
@@ -241,7 +264,7 @@ export function InvoiceManager({
           <div>
             <h2 className="font-bold text-[var(--chocolate)]">Cola SRI inmediata</h2>
             <p className="mt-1 text-sm leading-6 text-slate-600">
-              Al emitir, la factura entra a la cola SRI y el sistema intenta generar XML. La firma y transmision real se activaran al configurar firma electronica y servicios SRI.
+              {sriHelpText(settings)}
             </p>
           </div>
           <Button disabled={isPending} onClick={retryQueue} variant="secondary">
@@ -252,6 +275,7 @@ export function InvoiceManager({
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[420px_1fr]">
+        <div className="space-y-5">
         <article
           className="rounded-lg border border-[var(--line)] bg-white shadow-sm shadow-pink-950/5"
           id="generar-factura"
@@ -309,12 +333,45 @@ export function InvoiceManager({
           </div>
         </article>
 
+        {selectedInvoice ? (
+          <article className="rounded-lg border border-[var(--line)] bg-white p-5 shadow-sm shadow-pink-950/5">
+            <p className="text-sm font-bold uppercase text-[var(--berry)]">Factura seleccionada</p>
+            <h2 className="mt-1 text-lg font-bold text-[var(--chocolate)]">{selectedInvoice.number}</h2>
+            <div className="mt-3 space-y-2 text-sm text-slate-600">
+              <p><strong>Cliente:</strong> {selectedInvoice.customerName}</p>
+              <p><strong>Total:</strong> {currency(selectedInvoice.total)}</p>
+              <p><strong>Correo:</strong> {selectedInvoice.customerEmail || "Sin correo"}</p>
+              <p><strong>SRI:</strong> {sriStatusText(selectedInvoice, settings)}</p>
+            </div>
+            {selectedInvoice.sriJob?.lastError ? (
+              <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                {selectedInvoice.sriJob.lastError}
+              </p>
+            ) : null}
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
+              <Button disabled={isPending} onClick={() => emitSri(selectedInvoice.id)} variant="secondary">
+                <ShieldCheck aria-hidden className="size-4" />
+                {settings.sriEnvironment === "PRODUCCION" ? "Procesar SRI" : "Generar XML prueba"}
+              </Button>
+              <Button
+                disabled={!selectedInvoice.customerEmail || isPending}
+                onClick={() => sendInvoiceEmail(selectedInvoice)}
+                title={selectedInvoice.customerEmail ? "Enviar correo al cliente" : "El cliente no tiene correo registrado"}
+              >
+                <Send aria-hidden className="size-4" />
+                Enviar correo
+              </Button>
+            </div>
+          </article>
+        ) : null}
+        </div>
+
         <article className="rounded-lg border border-[var(--line)] bg-white shadow-sm shadow-pink-950/5">
           <div className="flex flex-col gap-4 border-b border-[var(--line)] p-5 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 className="text-lg font-bold text-[var(--chocolate)]">Facturas generadas</h2>
+              <h2 className="text-lg font-bold text-[var(--chocolate)]">Pila de facturas</h2>
               <p className="mt-1 text-sm text-slate-500">
-                Control de facturas internas antes del PDF y SRI.
+                Selecciona una factura y trabaja sus acciones sin perderte en una tabla larga.
               </p>
             </div>
             <label className="flex min-h-10 items-center gap-2 rounded-lg border border-[var(--line)] bg-white px-3 text-sm text-slate-500 shadow-sm lg:w-80">
@@ -330,7 +387,7 @@ export function InvoiceManager({
           </div>
 
           {filteredInvoices.length ? (
-            <div className="divide-y divide-[var(--line)]">
+            <div className="max-h-[640px] divide-y divide-[var(--line)] overflow-y-auto">
               {filteredInvoices.map((invoice) => (
                 <InvoiceRow
                   invoice={invoice}
@@ -341,6 +398,7 @@ export function InvoiceManager({
                   onStatusChange={(status) => updateInvoiceStatus(invoice.id, status)}
                   pending={isPending}
                   selected={selectedInvoice?.id === invoice.id}
+                  settings={settings}
                 />
               ))}
             </div>
@@ -406,6 +464,7 @@ function InvoiceRow({
   onSriEmit,
   onStatusChange,
   pending,
+  settings,
 }: {
   invoice: InternalInvoice;
   selected: boolean;
@@ -414,6 +473,7 @@ function InvoiceRow({
   onSriEmit: () => void;
   onStatusChange: (status: InternalInvoiceStatus) => void;
   pending: boolean;
+  settings: BusinessSettingsForm;
 }) {
   return (
     <div className={selected ? "perf-row bg-pink-50/50 p-5" : "perf-row p-5"}>
@@ -428,7 +488,7 @@ function InvoiceRow({
             <p><strong>Fecha:</strong> {shortDate(invoice.issuedAt)}</p>
             <p><strong>Cliente:</strong> {invoice.customerName}</p>
             <p><strong>Total:</strong> {currency(invoice.total)}</p>
-            <p><strong>SRI:</strong> {invoiceStatusLabels[invoice.status]}</p>
+            <p><strong>SRI:</strong> {sriStatusText(invoice, settings)}</p>
             <p><strong>Intentos:</strong> {invoice.sriJob?.attempts ?? 0}</p>
             <p><strong>XML:</strong> {invoice.hasSriXml ? "Generado" : "Pendiente"}</p>
             <p><strong>Clave acceso:</strong> {invoice.sriAccessKey ? `${invoice.sriAccessKey.slice(0, 12)}...` : "Pendiente"}</p>
@@ -546,13 +606,15 @@ function InvoicePreview({
               <p className="mt-1 text-lg font-bold text-slate-950">{invoice.number}</p>
               <p className="mt-1 text-sm text-slate-600">{shortDate(invoice.issuedAt)}</p>
               <p className={`mt-2 text-xs font-semibold ${
-                ["FIRMADA", "ENVIADA", "AUTORIZADA"].includes(invoice.status)
+                ["FIRMADA", "ENVIADA_SRI", "RECIBIDA", "AUTORIZADA"].includes(invoice.status)
                   ? "text-emerald-700"
                   : "text-amber-700"
               }`}>
-                {["FIRMADA", "ENVIADA", "AUTORIZADA"].includes(invoice.status)
-                  ? "Emitida y Firmada SRI"
-                  : "Borrador - No autorizada SRI"}
+                {["FIRMADA", "ENVIADA_SRI", "RECIBIDA", "AUTORIZADA"].includes(invoice.status)
+                  ? "Documento firmado para SRI"
+                  : settings.sriEnvironment === "PRUEBAS"
+                    ? "Ambiente de pruebas - XML local"
+                    : "Pendiente de firma SRI"}
               </p>
             </div>
           </div>
@@ -628,7 +690,7 @@ function InvoicePreview({
               Estado: {invoiceStatusLabels[invoice.status]}
             </div>
             <p className="mt-2">
-              Luego conectaremos este comprobante al PDF, correo y modulo SRI.
+              {sriStatusText(invoice, settings)}
             </p>
           </div>
         </aside>

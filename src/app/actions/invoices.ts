@@ -161,9 +161,9 @@ export async function generateInvoice(orderId: string) {
   try {
     const settings = await prisma.businessSettings.findUnique({
       where: { id: settingsId },
-      select: { sriEnabled: true, signatureFilePath: true },
+      select: { sriEnabled: true },
     });
-    if (settings?.sriEnabled && settings?.signatureFilePath) {
+    if (settings?.sriEnabled) {
       const job = await enqueueSriJob(selectedInvoiceId);
       await processSriJob(job.id);
     }
@@ -201,7 +201,7 @@ export async function recordInvoiceEmail(log: InvoiceEmailLog) {
   if (!settings) failValidation("Configura los datos de la empresa antes de enviar correos.");
 
   // Automatizar la emisión y firma electrónica SRI antes de enviar por correo si aún no se ha emitido
-  if (settings.sriEnabled && settings.signatureFilePath && (!invoice.sriAccessKey || invoice.status === "BORRADOR")) {
+  if (settings.sriEnabled && (!invoice.sriAccessKey || invoice.status === "BORRADOR")) {
     try {
       const job = await enqueueSriJob(invoiceId);
       await processSriJob(job.id);
@@ -393,7 +393,14 @@ export async function emitInvoiceToSri(id: string) {
   await requireAdminSession();
   const invoiceId = assertSafeId(id, "identificador de la factura");
 
-  let message = "Factura enviada a la cola SRI. Revisa el estado electronico.";
+  const settings = await prisma.businessSettings.findUnique({
+    where: { id: settingsId },
+    select: { sriEnvironment: true },
+  });
+  let message =
+    settings?.sriEnvironment === "PRODUCCION"
+      ? "Factura procesada para firma electronica en produccion. Revisa el estado electronico."
+      : "Ambiente de pruebas: se genero XML local de simulacion. No se envio al SRI real ni se uso la firma electronica.";
   let ok = true;
 
   try {
