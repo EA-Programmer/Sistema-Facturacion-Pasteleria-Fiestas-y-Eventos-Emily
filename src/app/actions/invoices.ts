@@ -6,6 +6,7 @@ import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { requireSameOriginRequest } from "@/lib/action-security";
 import { requireAdminSession } from "@/lib/auth";
+import { extractEmailAddress } from "@/lib/email-address";
 import { getInternalInvoices, statusToPrisma } from "@/lib/invoices-db";
 import { prisma } from "@/lib/prisma";
 import { getBusinessSettings, settingsId } from "@/lib/settings-db";
@@ -281,7 +282,8 @@ export async function recordInvoiceEmail(log: InvoiceEmailLog) {
 
   const html = generateInvoiceHtmlEmail(fullInvoice, normalizedSettings);
   let emailStatus: "ENVIADO" | "ERROR" = "ENVIADO";
-  const fromAddress = normalizedSettings.emailFromAddress || process.env.EMAIL_FROM || normalizedSettings.email || "noreply@smartmenucloud.com";
+  const rawFromAddress = normalizedSettings.emailFromAddress || process.env.EMAIL_FROM || normalizedSettings.email || "noreply@smartmenucloud.com";
+  const fromAddress = extractEmailAddress(rawFromAddress);
   const fromName = cleanEmailHeader(normalizedSettings.emailFromName || normalizedSettings.businessName, "El remitente", 120);
   if (!isValidEmail(fromAddress)) failValidation("Configura un correo remitente valido antes de enviar facturas.");
 

@@ -19,6 +19,7 @@ import { DataTable } from "@/components/ui/data-table";
 import { StatCard } from "@/components/ui/stat-card";
 import { brand } from "@/lib/brand";
 import { getCakeCatalog } from "@/lib/cake-catalog-db";
+import { extractEmailAddress } from "@/lib/email-address";
 import { invoiceStatusLabels } from "@/lib/invoices-catalog";
 import { getInternalInvoices } from "@/lib/invoices-db";
 import { orderStatusLabels } from "@/lib/orders-catalog";
@@ -146,16 +147,18 @@ export default async function DashboardPage() {
   ];
 
   // Verify checklist items
+  const envEmailFrom = process.env.EMAIL_FROM ? extractEmailAddress(process.env.EMAIL_FROM) : "";
+  const configuredSender = settings.emailFromAddress || envEmailFrom || settings.email;
   const smtpConfigured = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
   const resendConfigured = Boolean(process.env.RESEND_API_KEY);
-  const senderConfigured = Boolean(settings.emailFromAddress || process.env.EMAIL_FROM || settings.email);
-  const emailConfigured = (smtpConfigured || resendConfigured) && senderConfigured;
-  const emailProvider = resendConfigured ? "Resend listo" : smtpConfigured ? "SMTP listo" : "Remitente pendiente";
-  const emailDetail = resendConfigured
-    ? (settings.emailFromAddress || process.env.EMAIL_FROM || settings.email || "Remitente configurado")
+  const senderConfigured = Boolean(configuredSender);
+  const emailConfigured = senderConfigured;
+  const emailProvider = resendConfigured ? "Resend listo" : smtpConfigured ? "SMTP listo" : "Preparado";
+  const emailDetail = resendConfigured || senderConfigured
+    ? (configuredSender || "Remitente configurado")
     : smtpConfigured
       ? process.env.SMTP_USER
-      : "Configura Resend o SMTP";
+      : "Configura el remitente";
   const signatureConfigured = settings.hasSignature;
   const isSignatureExpired = settings.signatureExpiresAt ? new Date(settings.signatureExpiresAt) < new Date() : false;
   const rucConfigured = /^\d{13}$/.test(settings.ruc) && settings.ruc !== "PENDIENTE";
