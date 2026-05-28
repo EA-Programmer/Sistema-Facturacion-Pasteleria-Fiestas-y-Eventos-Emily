@@ -254,9 +254,14 @@ export function InvoiceManager({
     startTransition(async () => {
       try {
         const result = await recordInvoiceEmail(emailLog);
-        setEmailLogs((current) => [result.log, ...current]);
         setInvoices(result.invoices);
-        setMessage({ type: "success", text: "Comprobante electrónico (PDF y XML) enviado con éxito al correo del cliente." });
+        if (!result.ok) {
+          setMessage({ type: "error", text: result.message });
+          return;
+        }
+
+        setEmailLogs((current) => [result.log, ...current]);
+        setMessage({ type: "success", text: result.message });
       } catch (error) {
         setMessage({ type: "error", text: errorText(error) });
       }

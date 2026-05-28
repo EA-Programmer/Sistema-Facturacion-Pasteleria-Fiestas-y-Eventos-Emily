@@ -55,6 +55,15 @@ async function refreshInvoices() {
   return getInternalInvoices();
 }
 
+async function safeRefreshInvoices() {
+  try {
+    return await refreshInvoices();
+  } catch (error) {
+    console.error("No se pudo refrescar facturas tras una accion fallida:", error);
+    return [];
+  }
+}
+
 function toActionMessage(error: unknown, fallback: string) {
   if (error instanceof AppValidationError) return error.message;
   if (error instanceof Error && error.message) return error.message;
@@ -178,8 +187,9 @@ export async function generateInvoice(orderId: string) {
 }
 
 export async function recordInvoiceEmail(log: InvoiceEmailLog) {
-  await requireSameOriginRequest();
-  await requireAdminSession();
+  try {
+    await requireSameOriginRequest();
+    await requireAdminSession();
 
   const invoiceId = assertSafeId(log.invoiceId, "identificador de la factura");
   const to = cleanText(log.to, "El correo de destino", 160, true);
@@ -337,20 +347,35 @@ export async function recordInvoiceEmail(log: InvoiceEmailLog) {
   revalidatePath("/facturas");
   revalidatePath("/");
 
-  return {
-    log: {
-      id: savedLog.id,
-      invoiceId: savedLog.invoiceId,
-      invoiceNumber: savedLog.invoiceNumber,
-      to: savedLog.to,
-      from: savedLog.from,
-      subject: savedLog.subject,
-      body: savedLog.body,
-      status: emailStatus,
-      sentAt: savedLog.sentAt.toISOString(),
-    },
-    invoices: await refreshInvoices(),
-  };
+    return {
+      ok: true as const,
+      message: "Factura enviada correctamente al correo del cliente.",
+      log: {
+        id: savedLog.id,
+        invoiceId: savedLog.invoiceId,
+        invoiceNumber: savedLog.invoiceNumber,
+        to: savedLog.to,
+        from: savedLog.from,
+        subject: savedLog.subject,
+        body: savedLog.body,
+        status: emailStatus,
+        sentAt: savedLog.sentAt.toISOString(),
+      },
+      invoices: await refreshInvoices(),
+    };
+  } catch (error) {
+    const message = toActionMessage(
+      error,
+      "No se pudo enviar la factura por correo. Revisa la configuracion SMTP o Resend.",
+    );
+    console.error("Error controlado al enviar factura por correo:", error);
+
+    return {
+      ok: false as const,
+      message,
+      invoices: await safeRefreshInvoices(),
+    };
+  }
 }
 
 export async function updateInvoiceStatus(id: string, status: InternalInvoiceStatus) {
