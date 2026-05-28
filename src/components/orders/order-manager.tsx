@@ -128,6 +128,20 @@ export function OrderManager({
   const selectedFilling = activeFillings.find((item) => item.id === form.fillingId);
   const selectedCover = activeCovers.find((item) => item.id === form.coverId);
   const selectedModel = activeModels.find((item) => item.id === form.modelId);
+  const hasCakeSelection = Boolean(
+    form.portionsId ||
+      form.flavorId ||
+      form.fillingId ||
+      form.coverId ||
+      form.modelId,
+  );
+  const hasCompleteCake = Boolean(
+    selectedPortion &&
+      selectedFlavor &&
+      selectedFilling &&
+      selectedCover &&
+      selectedModel,
+  );
 
   const totals = useMemo(() => {
     const extrasTotal = form.extras.reduce(
@@ -338,13 +352,16 @@ export function OrderManager({
 
   function getValidationMessage() {
     if (!selectedCustomer) return "Selecciona un cliente activo.";
-    if (!selectedPortion) return "Selecciona las porciones de la torta.";
-    if (!selectedFlavor) return "Selecciona el sabor.";
-    if (!selectedFilling) return "Selecciona el relleno.";
-    if (!selectedCover) return "Selecciona la cobertura.";
-    if (!selectedModel) return "Selecciona el modelo.";
+    if (hasCakeSelection && !selectedPortion) return "Selecciona las porciones de la torta o deja la torta vacia.";
+    if (hasCakeSelection && !selectedFlavor) return "Selecciona el sabor de la torta o deja la torta vacia.";
+    if (hasCakeSelection && !selectedFilling) return "Selecciona el relleno de la torta o deja la torta vacia.";
+    if (hasCakeSelection && !selectedCover) return "Selecciona la cobertura de la torta o deja la torta vacia.";
+    if (hasCakeSelection && !selectedModel) return "Selecciona el modelo de la torta o deja la torta vacia.";
     if (!form.deliveryDate) return "Selecciona la fecha de entrega.";
     if (isPastDateInput(form.deliveryDate)) return "La fecha de entrega no puede ser anterior a hoy.";
+    if (!hasCompleteCake && !form.extras.length && !form.productItems.length) {
+      return "Agrega una torta completa, un producto, un postre, bocaditos o un detalle adicional.";
+    }
     
     if (totalBocaditosCount > 0 && totalBocaditosCount < 50) {
       return `El pedido mínimo para bocaditos es de 50 unidades en total. Actualmente has seleccionado ${totalBocaditosCount} unidades.`;
@@ -365,11 +382,6 @@ export function OrderManager({
       ? orders.find((order) => order.id === editingId)
       : undefined;
     const customer = selectedCustomer!;
-    const portion = selectedPortion!;
-    const flavor = selectedFlavor!;
-    const filling = selectedFilling!;
-    const cover = selectedCover!;
-    const model = selectedModel!;
 
     const payload: CakeOrder = {
       id: editingId ?? createId("order"),
@@ -381,20 +393,20 @@ export function OrderManager({
       status: form.status,
       deliveryDate: form.deliveryDate,
       deliveryTime: form.deliveryTime,
-      portionsId: portion.id,
-      portionsLabel: `${portion.portions} porciones`,
-      basePrice: portion.price,
-      flavorId: flavor.id,
-      flavorName: flavor.name,
-      fillingId: filling.id,
-      fillingName: filling.name,
-      fillingExtraPrice: filling.extraPrice,
-      coverId: cover.id,
-      coverName: cover.name,
-      coverExtraPrice: cover.extraPrice,
-      modelId: model.id,
-      modelName: model.name,
-      modelExtraPrice: model.extraPrice,
+      portionsId: selectedPortion?.id ?? "",
+      portionsLabel: selectedPortion ? `${selectedPortion.portions} porciones` : "",
+      basePrice: selectedPortion?.price ?? 0,
+      flavorId: selectedFlavor?.id ?? "",
+      flavorName: selectedFlavor?.name ?? "",
+      fillingId: selectedFilling?.id ?? "",
+      fillingName: selectedFilling?.name ?? "",
+      fillingExtraPrice: selectedFilling?.extraPrice ?? 0,
+      coverId: selectedCover?.id ?? "",
+      coverName: selectedCover?.name ?? "",
+      coverExtraPrice: selectedCover?.extraPrice ?? 0,
+      modelId: selectedModel?.id ?? "",
+      modelName: selectedModel?.name ?? "",
+      modelExtraPrice: selectedModel?.extraPrice ?? 0,
       dedication: form.dedication.trim(),
       referenceImageNote: form.referenceImageNote.trim(),
       deliveryAddress: form.deliveryAddress.trim(),
@@ -1071,15 +1083,15 @@ function OrderCard({
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-bold text-slate-950">{order.code}</h3>
             <Badge variant={statusVariant(order.status)}>{orderStatusLabels[order.status]}</Badge>
-            <Badge variant="berry">{order.portionsLabel}</Badge>
+            <Badge variant="berry">{order.portionsLabel || "Pedido variado"}</Badge>
           </div>
           <p className="mt-2 text-sm font-semibold text-slate-700">{order.customerName}</p>
           <div className="mt-3 grid gap-2 text-sm text-slate-600 md:grid-cols-2">
             <p><strong>Entrega:</strong> {shortDate(order.deliveryDate)} {order.deliveryTime || ""}</p>
-            <p><strong>Sabor:</strong> {order.flavorName}</p>
-            <p><strong>Relleno:</strong> {order.fillingName}</p>
-            <p><strong>Cobertura:</strong> {order.coverName}</p>
-            <p><strong>Modelo:</strong> {order.modelName}</p>
+            {order.flavorName ? <p><strong>Sabor:</strong> {order.flavorName}</p> : null}
+            {order.fillingName ? <p><strong>Relleno:</strong> {order.fillingName}</p> : null}
+            {order.coverName ? <p><strong>Cobertura:</strong> {order.coverName}</p> : null}
+            {order.modelName ? <p><strong>Modelo:</strong> {order.modelName}</p> : null}
             <p><strong>Total:</strong> {currency(order.total)}</p>
           </div>
           {order.dedication ? (

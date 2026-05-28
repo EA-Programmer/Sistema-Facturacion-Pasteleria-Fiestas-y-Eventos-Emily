@@ -58,6 +58,16 @@ function buildCustomization(order: CakeOrder): Prisma.InputJsonObject {
   };
 }
 
+function hasCakeFields(order: CakeOrder) {
+  return Boolean(
+    order.portionsId ||
+      order.flavorId ||
+      order.fillingId ||
+      order.coverId ||
+      order.modelId,
+  );
+}
+
 export async function saveOrder(order: CakeOrder) {
   await requireSameOriginRequest();
   await requireAdminSession();
@@ -65,11 +75,12 @@ export async function saveOrder(order: CakeOrder) {
   const orderId = assertSafeId(order.id, "identificador del pedido");
   const status = assertAllowedValue(order.status, orderStatuses, "El estado del pedido");
   const customerId = assertSafeId(order.customerId, "identificador del cliente");
-  const portionsId = assertSafeId(order.portionsId, "identificador de porciones");
-  const flavorId = assertSafeId(order.flavorId, "identificador de sabor");
-  const fillingId = assertSafeId(order.fillingId, "identificador de relleno");
-  const coverId = assertSafeId(order.coverId, "identificador de cobertura");
-  const modelId = assertSafeId(order.modelId, "identificador de modelo");
+  const hasCake = hasCakeFields(order);
+  const portionsId = hasCake ? assertSafeId(order.portionsId, "identificador de porciones") : "";
+  const flavorId = hasCake ? assertSafeId(order.flavorId, "identificador de sabor") : "";
+  const fillingId = hasCake ? assertSafeId(order.fillingId, "identificador de relleno") : "";
+  const coverId = hasCake ? assertSafeId(order.coverId, "identificador de cobertura") : "";
+  const modelId = hasCake ? assertSafeId(order.modelId, "identificador de modelo") : "";
 
   if (!order.customerId) failValidation("Selecciona un cliente para el pedido.");
   if (!order.deliveryDate) failValidation("Selecciona la fecha de entrega.");
@@ -77,11 +88,11 @@ export async function saveOrder(order: CakeOrder) {
 
   const [customer, portion, flavor, filling, cover, model, settings] = await Promise.all([
     prisma.customer.findFirst({ where: { id: customerId, active: true } }),
-    prisma.cakePortion.findFirst({ where: { id: portionsId, active: true } }),
-    prisma.cakeFlavor.findFirst({ where: { id: flavorId, active: true } }),
-    prisma.cakeFilling.findFirst({ where: { id: fillingId, active: true } }),
-    prisma.cakeCover.findFirst({ where: { id: coverId, active: true } }),
-    prisma.cakeModel.findFirst({ where: { id: modelId, active: true } }),
+    hasCake ? prisma.cakePortion.findFirst({ where: { id: portionsId, active: true } }) : null,
+    hasCake ? prisma.cakeFlavor.findFirst({ where: { id: flavorId, active: true } }) : null,
+    hasCake ? prisma.cakeFilling.findFirst({ where: { id: fillingId, active: true } }) : null,
+    hasCake ? prisma.cakeCover.findFirst({ where: { id: coverId, active: true } }) : null,
+    hasCake ? prisma.cakeModel.findFirst({ where: { id: modelId, active: true } }) : null,
     prisma.businessSettings.findUnique({
       where: { id: settingsId },
       select: { taxRate: true },
@@ -89,11 +100,11 @@ export async function saveOrder(order: CakeOrder) {
   ]);
 
   if (!customer) failValidation("El cliente seleccionado no existe o esta inactivo.");
-  if (!portion) failValidation("Selecciona una porcion activa del catalogo.");
-  if (!flavor) failValidation("Selecciona un sabor activo del catalogo.");
-  if (!filling) failValidation("Selecciona un relleno activo del catalogo.");
-  if (!cover) failValidation("Selecciona una cobertura activa del catalogo.");
-  if (!model) failValidation("Selecciona un modelo activo del catalogo.");
+  if (hasCake && !portion) failValidation("Selecciona una porcion activa del catalogo.");
+  if (hasCake && !flavor) failValidation("Selecciona un sabor activo del catalogo.");
+  if (hasCake && !filling) failValidation("Selecciona un relleno activo del catalogo.");
+  if (hasCake && !cover) failValidation("Selecciona una cobertura activa del catalogo.");
+  if (hasCake && !model) failValidation("Selecciona un modelo activo del catalogo.");
 
   const extras = order.extras.map((extra) => {
     const name = cleanText(extra.name, "El nombre del extra", 120, true);
@@ -157,11 +168,18 @@ export async function saveOrder(order: CakeOrder) {
 
   const extrasTotal = extras.reduce((total, extra) => total + extra.price * extra.quantity, 0);
   const productsTotal = productItems.reduce((total, item) => total + item.total, 0);
+  const cakeTotal = hasCake
+    ? Number(portion?.price ?? 0) +
+      Number(filling?.extraPrice ?? 0) +
+      Number(cover?.extraPrice ?? 0) +
+      Number(model?.extraPrice ?? 0)
+    : 0;
+  if (!hasCake && !extras.length && !productItems.length) {
+    failValidation("Agrega una torta, un producto, un postre, bocaditos o un detalle adicional al pedido.");
+  }
+
   const subtotal = roundMoney(
-    Number(portion.price) +
-      Number(filling.extraPrice) +
-      Number(cover.extraPrice) +
-      Number(model.extraPrice) +
+    cakeTotal +
       extrasTotal +
       productsTotal,
   );
@@ -177,20 +195,20 @@ export async function saveOrder(order: CakeOrder) {
     customerName: customer.name,
     customerDocument: customer.document,
     customerEmail: customer.email ?? "",
-    portionsId: portion.id,
-    portionsLabel: `${portion.portions} porciones`,
-    basePrice: Number(portion.price),
-    flavorId: flavor.id,
-    flavorName: flavor.name,
-    fillingId: filling.id,
-    fillingName: filling.name,
-    fillingExtraPrice: Number(filling.extraPrice),
-    coverId: cover.id,
-    coverName: cover.name,
-    coverExtraPrice: Number(cover.extraPrice),
-    modelId: model.id,
-    modelName: model.name,
-    modelExtraPrice: Number(model.extraPrice),
+    portionsId: portion?.id ?? "",
+    portionsLabel: portion ? `${portion.portions} porciones` : "",
+    basePrice: Number(portion?.price ?? 0),
+    flavorId: flavor?.id ?? "",
+    flavorName: flavor?.name ?? "",
+    fillingId: filling?.id ?? "",
+    fillingName: filling?.name ?? "",
+    fillingExtraPrice: Number(filling?.extraPrice ?? 0),
+    coverId: cover?.id ?? "",
+    coverName: cover?.name ?? "",
+    coverExtraPrice: Number(cover?.extraPrice ?? 0),
+    modelId: model?.id ?? "",
+    modelName: model?.name ?? "",
+    modelExtraPrice: Number(model?.extraPrice ?? 0),
     deliveryTime: cleanText(order.deliveryTime, "La hora de entrega", 20),
     deliveryAddress: cleanText(order.deliveryAddress, "La direccion de entrega", 220),
     dedication: cleanText(order.dedication, "La dedicatoria", 160),
@@ -244,16 +262,18 @@ export async function saveOrder(order: CakeOrder) {
     });
 
     await tx.orderItem.deleteMany({ where: { orderId: payload.id } });
-    await tx.orderItem.create({
-      data: {
-        orderId: payload.id,
-        name: "Torta personalizada",
-        quantity: 1,
-        unitPrice: payload.subtotal,
-        total: payload.subtotal,
-        customization: buildCustomization(payload),
-      },
-    });
+    if (hasCake || payload.extras.length) {
+      await tx.orderItem.create({
+        data: {
+          orderId: payload.id,
+          name: hasCake ? "Torta personalizada" : "Detalles adicionales",
+          quantity: 1,
+          unitPrice: roundMoney(cakeTotal + extrasTotal),
+          total: roundMoney(cakeTotal + extrasTotal),
+          customization: buildCustomization(payload),
+        },
+      });
+    }
 
     if (payload.productItems.length) {
       await tx.orderItem.createMany({

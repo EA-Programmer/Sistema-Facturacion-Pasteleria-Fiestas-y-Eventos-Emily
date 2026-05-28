@@ -74,6 +74,18 @@ function sriHelpText(settings: BusinessSettingsForm) {
   return "Ambiente de produccion: requiere firma valida en este servidor antes de firmar comprobantes reales.";
 }
 
+function orderDetailText(order: CakeOrder) {
+  const parts = [
+    order.portionsLabel && order.flavorName
+      ? `Torta ${order.portionsLabel}, sabor ${order.flavorName}`
+      : "",
+    ...(order.productItems ?? []).map((item) => `${item.name} x${item.quantity}`),
+    ...(order.extras ?? []).map((extra) => `${extra.name} x${extra.quantity}`),
+  ].filter(Boolean);
+
+  return parts.length ? parts.join(" | ") : "Pedido sin detalle facturable";
+}
+
 function errorText(error: unknown) {
   if (error instanceof Error) {
     if (error.message.includes("Server Components render") || error.message.includes("digest")) {
@@ -220,7 +232,10 @@ export function InvoiceManager({
     const fromAddress = settings.emailFromAddress || settings.email || "pendiente@emily.local";
     const toAddress = invoice.customerEmail;
 
-    if (!toAddress) return;
+    if (!toAddress) {
+      setMessage({ type: "error", text: "El cliente no tiene correo registrado para enviar la factura." });
+      return;
+    }
 
     const subject = `Factura ${invoice.number} - ${settings.tradeName || settings.businessName}`;
     const body = buildInvoiceEmailBody(invoice, settings);
@@ -317,7 +332,7 @@ export function InvoiceManager({
                   <p><strong>Documento:</strong> {selectedOrder.customerDocument}</p>
                   <p><strong>Correo:</strong> {selectedCustomer?.email || "Sin correo"}</p>
                   <p><strong>Direccion:</strong> {selectedCustomer?.address || selectedOrder.deliveryAddress || "Sin direccion"}</p>
-                  <p><strong>Detalle:</strong> {selectedOrder.portionsLabel}, {selectedOrder.flavorName}, {selectedOrder.modelName}</p>
+                  <p><strong>Detalle:</strong> {orderDetailText(selectedOrder)}</p>
                 </div>
               </div>
             ) : (

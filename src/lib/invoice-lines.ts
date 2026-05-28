@@ -6,30 +6,32 @@ function createLineId(prefix: string, index: number) {
 }
 
 export function buildInvoiceLines(order: CakeOrder): InternalInvoiceLine[] {
-  const cakeDescription = [
-    `Torta personalizada ${order.portionsLabel}`,
-    `sabor ${order.flavorName}`,
-    `relleno ${order.fillingName}`,
-    `cobertura ${order.coverName}`,
-    `modelo ${order.modelName}`,
-  ].join(", ");
-
   const cakeTotal =
     order.basePrice +
     order.fillingExtraPrice +
     order.coverExtraPrice +
     order.modelExtraPrice;
+  const hasCake = cakeTotal > 0 && Boolean(order.portionsLabel || order.flavorName || order.modelName);
+  const cakeDescription = [
+    order.portionsLabel ? `Torta personalizada ${order.portionsLabel}` : "Torta personalizada",
+    order.flavorName ? `sabor ${order.flavorName}` : "",
+    order.fillingName ? `relleno ${order.fillingName}` : "",
+    order.coverName ? `cobertura ${order.coverName}` : "",
+    order.modelName ? `modelo ${order.modelName}` : "",
+  ].filter(Boolean).join(", ");
 
   const extras: OrderExtra[] = order.extras ?? [];
 
   return [
-    {
-      id: createLineId("line", 0),
-      description: cakeDescription,
-      quantity: 1,
-      unitPrice: cakeTotal,
-      total: cakeTotal,
-    },
+    ...(hasCake
+      ? [{
+          id: createLineId("line", 0),
+          description: cakeDescription,
+          quantity: 1,
+          unitPrice: cakeTotal,
+          total: cakeTotal,
+        }]
+      : []),
     ...extras.map((extra, index) => ({
       id: extra.id || createLineId("extra", index),
       description: extra.name,

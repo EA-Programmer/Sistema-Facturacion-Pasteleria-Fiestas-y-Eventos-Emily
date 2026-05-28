@@ -15,6 +15,13 @@ export type SendEmailOptions = {
   attachments: EmailAttachment[];
 };
 
+function smtpFromAddress(from: string, smtpUser: string) {
+  const user = smtpUser.trim();
+  if (!user) return from;
+  if (from.includes("<")) return from.replace(/<[^>]+>/, `<${user}>`);
+  return user;
+}
+
 export async function sendEmail(options: SendEmailOptions): Promise<{ status: "ENVIADO"; messageId: string }> {
   const resendApiKey = process.env.RESEND_API_KEY;
   const smtpHost = process.env.SMTP_HOST;
@@ -91,7 +98,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<{ status: "E
       } as any);
 
       const info = await transporter.sendMail({
-        from: options.from,
+        from: smtpFromAddress(options.from, smtpUser),
         to: options.to,
         subject: options.subject,
         html: options.html,

@@ -282,8 +282,17 @@ export async function recordInvoiceEmail(log: InvoiceEmailLog) {
 
   const html = generateInvoiceHtmlEmail(fullInvoice, normalizedSettings);
   let emailStatus: "ENVIADO" | "ERROR" = "ENVIADO";
-  const rawFromAddress = normalizedSettings.emailFromAddress || process.env.EMAIL_FROM || normalizedSettings.email || "noreply@smartmenucloud.com";
-  const fromAddress = extractEmailAddress(rawFromAddress);
+  const rawFromAddress =
+    normalizedSettings.emailFromAddress ||
+    process.env.SMTP_USER ||
+    process.env.EMAIL_FROM ||
+    normalizedSettings.email ||
+    "noreply@smartmenucloud.com";
+  let fromAddress = extractEmailAddress(rawFromAddress);
+  const smtpUser = process.env.SMTP_USER?.trim() ?? "";
+  if (!isValidEmail(fromAddress) && isValidEmail(smtpUser)) {
+    fromAddress = smtpUser;
+  }
   const fromName = cleanEmailHeader(normalizedSettings.emailFromName || normalizedSettings.businessName, "El remitente", 120);
   if (!isValidEmail(fromAddress)) failValidation("Configura un correo remitente valido antes de enviar facturas.");
 

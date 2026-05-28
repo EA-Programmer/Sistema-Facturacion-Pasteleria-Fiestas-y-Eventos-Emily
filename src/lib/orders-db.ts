@@ -34,6 +34,9 @@ export async function getCakeOrders(): Promise<CakeOrder[]> {
     include: {
       customer: true,
       items: {
+        include: {
+          product: true,
+        },
         orderBy: { id: "asc" },
       },
     },
@@ -41,7 +44,7 @@ export async function getCakeOrders(): Promise<CakeOrder[]> {
   });
 
   return orders.map((order) => {
-    const item = order.items[0];
+    const item = order.items.find((orderItem) => !orderItem.productId) ?? order.items[0];
     const customization = asCustomization(item?.customization);
 
     return {
@@ -79,7 +82,7 @@ export async function getCakeOrders(): Promise<CakeOrder[]> {
           id: orderItem.id,
           productId: orderItem.productId ?? "",
           name: orderItem.name,
-          category: "",
+          category: orderItem.product?.category ?? "",
           quantity: orderItem.quantity,
           unitPrice: Number(orderItem.unitPrice),
           total: Number(orderItem.total),
